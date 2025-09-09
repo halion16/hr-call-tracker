@@ -1,36 +1,151 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HR Call Tracker
 
-## Getting Started
+Sistema di tracciamento call HR per gestire i recap periodici con i dipendenti.
 
-First, run the development server:
+## 🚀 Caratteristiche Principali
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+### ✅ Già Implementato
+- **Dashboard Interattiva** - Panoramica completa con statistiche in tempo reale
+- **Gestione Dipendenti** - Sincronizzazione automatica da API aziendale
+- **Pianificazione Call** - Schedulazione semplice e intuitiva
+- **Tracciamento Completo** - Registrazione durata, note e valutazioni
+- **Persistenza Locale** - Tutti i dati salvati in localStorage per testing
+- **Mock API** - Simulazione integrazione con sistema aziendale
+
+### 📋 Funzionalità
+
+1. **Dashboard**
+   - Statistiche in tempo reale
+   - Prossime call programmate
+   - Azioni rapide
+
+2. **Gestione Dipendenti**
+   - Import automatico da API aziendale
+   - Visualizzazione dettagli dipendenti
+   - Schedulazione diretta call
+
+3. **Gestione Call**
+   - Pianificazione con data/ora
+   - Completamento con note e valutazione
+   - Programmazione automatica call successive
+   - Storico completo
+
+## 🛠️ Tecnologie
+
+- **Frontend**: Next.js 15 + TypeScript + Tailwind CSS
+- **Storage**: localStorage (modalità test)
+- **Icons**: Lucide React
+- **Styling**: Tailwind CSS + Shadcn/ui components
+
+## 🚦 Come Iniziare
+
+1. **Avvia l'applicazione**:
+   ```bash
+   npm run dev
+   ```
+
+2. **Accedi** a http://localhost:3000
+
+3. **Prima configurazione**:
+   - Vai su "Dipendenti"
+   - Clicca "Sincronizza API Aziendale" per importare i dipendenti mock
+   - Inizia a schedulare le tue prime call!
+
+## 📱 Guida Rapida
+
+### Sincronizzare Dipendenti
+1. Vai alla pagina "Dipendenti"
+2. Clicca "Sincronizza API Aziendale"
+3. I dipendenti attivi verranno importati automaticamente
+
+### Pianificare una Call
+1. Dalla dashboard o dalla pagina "Call", clicca "Pianifica Nuova Call"
+2. Seleziona dipendente, data/ora e note opzionali
+3. La call viene aggiunta al calendario
+
+### Completare una Call
+1. Dalla pagina "Call", trova la call programmata
+2. Clicca "Completa" 
+3. Inserisci durata, valutazione e note
+4. Opzionalmente programma la call successiva
+
+## 🔧 Configurazione API Aziendale
+
+Attualmente configurato con mock API per testing:
+
+```typescript
+// Mock API Credentials
+endpoint: 'https://company-api.example.com'
+version: 'v1'
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Per Integrazione Reale
+1. Modifica `src/lib/mock-company-api.ts`
+2. Sostituisci le chiamate mock con API reali
+3. Configura autenticazione e endpoint corretti
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 📊 Struttura Dati
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Dipendente
+```typescript
+{
+  id: string;
+  nome: string;
+  cognome: string;
+  email: string;
+  posizione: string;
+  dipartimento: string;
+  dataAssunzione: string;
+  telefono?: string;
+  isActive: boolean;
+}
+```
 
-## Learn More
+### Call
+```typescript
+{
+  id: string;
+  employeeId: string;
+  dataSchedulata: string;
+  dataCompletata?: string;
+  durata?: number;
+  note?: string;
+  rating?: number;
+  status: 'scheduled' | 'completed' | 'cancelled';
+  nextCallDate?: string;
+}
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 🎯 Prossimi Sviluppi
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- [ ] **Database Persistente** (PostgreSQL + Prisma)
+- [ ] **Autenticazione Utenti**
+- [ ] **Calendario Visuale** con eventi
+- [ ] **Reportistica Avanzata**
+- [ ] **Integrazione Email/SMS** per promemoria
+- [ ] **Esportazione Dati** (CSV, PDF)
+- [ ] **API REST** per integrazioni esterne
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 🔄 Migrazione a Database
 
-## Deploy on Vercel
+Quando sarai pronto per il database:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. **Installa Prisma**:
+   ```bash
+   npm install prisma @prisma/client
+   ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+2. **Configura PostgreSQL**
+
+3. **Migra dati** da localStorage al database
+
+4. **Sostituisci** LocalStorage con chiamate API
+
+## 📝 Note di Sviluppo
+
+- **Dati Mock**: L'app include 6 dipendenti di esempio
+- **Persistenza**: Tutti i dati vengono salvati in localStorage
+- **Reset Dati**: Cancella localStorage per reset completo
+- **Sincronizzazione**: La mock API simula ritardi reali (1-2 secondi)
+
+L'applicazione è **pronta per il testing** e può essere facilmente estesa con database reale e funzionalità aggiuntive!
