@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { NotificationService, NotificationSettings, NotificationChannel } from '@/lib/notification-service';
 import { DigestSettingsComponent } from './digest-settings';
+import { NotificationTestComponent } from './notification-test';
 import { toast } from 'sonner';
 
 export function NotificationSettingsComponent() {
@@ -44,8 +45,8 @@ export function NotificationSettingsComponent() {
     setSettings(currentSettings);
   };
 
-  const loadStats = () => {
-    const currentStats = NotificationService.getStats();
+  const loadStats = async () => {
+    const currentStats = await NotificationService.getStats();
     setStats(currentStats);
   };
 
@@ -174,7 +175,7 @@ export function NotificationSettingsComponent() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="text-center">
               <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
               <div className="text-sm text-gray-600">Totali</div>
@@ -191,6 +192,12 @@ export function NotificationSettingsComponent() {
               <div className="text-2xl font-bold text-red-600">{stats.failed}</div>
               <div className="text-sm text-gray-600">Fallite</div>
             </div>
+            {stats.cancelled !== undefined && (
+              <div className="text-center">
+                <div className="text-2xl font-bold text-gray-500">{stats.cancelled}</div>
+                <div className="text-sm text-gray-600">Cancellate</div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -459,6 +466,11 @@ export function NotificationSettingsComponent() {
       {/* Digest Settings Section */}
       <div className="border-t pt-6 mt-6">
         <DigestSettingsComponent />
+      </div>
+
+      {/* Test Component Section */}
+      <div className="border-t pt-6 mt-6">
+        <NotificationTestComponent />
       </div>
     </div>
   );

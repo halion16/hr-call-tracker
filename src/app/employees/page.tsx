@@ -17,6 +17,9 @@ import { toast } from 'sonner';
 import { PriorityConfigService } from '@/lib/priority-config';
 import { useKeyboardShortcuts, useModalKeyboardNavigation, useFocusManagement } from '@/hooks/useKeyboardShortcuts';
 import { useFormValidation, useTimeConflictDetection, commonValidationRules } from '@/hooks/useFormValidation';
+import { ExportModal } from '@/components/ExportModal';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { autocompleteService } from '@/lib/autocomplete-service';
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -44,6 +47,9 @@ export default function EmployeesPage() {
   
   // Priority config modal
   const [showPriorityConfig, setShowPriorityConfig] = useState(false);
+  
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
   
   // Refs per keyboard navigation
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -723,6 +729,16 @@ export default function EmployeesPage() {
           </Button>
           <Button 
             variant="outline" 
+            onClick={() => setShowExportModal(true)}
+            disabled={employees.length === 0}
+            size="sm"
+            className="scale-hover"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Esporta Dipendenti
+          </Button>
+          <Button 
+            variant="outline" 
             onClick={syncEmployees}
             disabled={syncing}
             className={employees.some(emp => getEmployeePriority(emp) === 'high') ? 'pulse-notification' : ''}
@@ -801,14 +817,18 @@ export default function EmployeesPage() {
               {/* Barra di ricerca */}
               <div className="mb-4">
                 <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
-                    ref={searchInputRef}
-                    placeholder="Cerca per nome, cognome, email, posizione... (Ctrl+F)"
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400 z-10" />
+                  <Autocomplete
                     value={searchFilter}
-                    onChange={(e) => setSearchFilter(e.target.value)}
+                    onChange={setSearchFilter}
+                    options={autocompleteService.getSuggestions('employee-search')}
+                    placeholder="Cerca per nome, cognome, email, posizione... (Ctrl+F)"
                     className="pl-10"
-                    autoComplete="off"
+                    allowCustom={true}
+                    showFrequency={false}
+                    onSelect={(option) => {
+                      autocompleteService.addSuggestion('employee-search', option.value, 'employee-filtering');
+                    }}
                   />
                 </div>
               </div>
@@ -1384,6 +1404,15 @@ export default function EmployeesPage() {
           </div>
         </div>
       )}
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        data={{ employees: employees }}
+        type="employees"
+        title="Esporta Elenco Dipendenti"
+      />
     </div>
   );
 }

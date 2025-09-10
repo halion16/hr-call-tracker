@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { LocalStorage } from '@/lib/storage';
 import { Call, Employee } from '@/types';
 import { formatDate } from '@/lib/utils';
+import { CallsChart, StatusPieChart } from '@/components/charts/CallsChart';
+import { DepartmentChart, DepartmentPerformanceChart } from '@/components/charts/DepartmentChart';
 
 interface CallWithEmployee extends Call {
   employee: Employee;
@@ -16,6 +18,8 @@ interface MonthlyStats {
   month: string;
   completed: number;
   scheduled: number;
+  cancelled?: number;
+  suspended?: number;
 }
 
 interface DepartmentStats {
@@ -84,7 +88,9 @@ export default function ReportsPage() {
         monthlyData[monthKey] = {
           month: monthName,
           completed: 0,
-          scheduled: 0
+          scheduled: 0,
+          cancelled: 0,
+          suspended: 0
         };
       }
       
@@ -92,6 +98,10 @@ export default function ReportsPage() {
         monthlyData[monthKey].completed++;
       } else if (call.status === 'scheduled') {
         monthlyData[monthKey].scheduled++;
+      } else if (call.status === 'cancelled') {
+        monthlyData[monthKey].cancelled!++;
+      } else if (call.status === 'suspended') {
+        monthlyData[monthKey].suspended!++;
       }
     });
     
@@ -286,6 +296,119 @@ export default function ReportsPage() {
                   </div>
                 ))}
               </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Sezione Grafici Analytics */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Grafico andamento mensile */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Andamento Mensile Call
+            </CardTitle>
+            <CardDescription>Trend delle call negli ultimi mesi</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {monthlyStats.length === 0 ? (
+              <div className="h-80 flex items-center justify-center text-gray-500">
+                <div className="text-center">
+                  <BarChart3 className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>Dati insufficienti per il grafico</p>
+                  <p className="text-sm">Aggiungi più call per vedere l'andamento</p>
+                </div>
+              </div>
+            ) : (
+              <CallsChart data={monthlyStats} />
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Grafico distribuzione stati */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              Distribuzione Stati Call
+            </CardTitle>
+            <CardDescription>Composizione percentuale per stato</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <StatusPieChart 
+              data={[
+                {
+                  name: 'Completate',
+                  value: overallStats.completedCalls,
+                  color: '#10b981'
+                },
+                {
+                  name: 'Programmate', 
+                  value: overallStats.totalCalls - overallStats.completedCalls,
+                  color: '#3b82f6'
+                },
+                {
+                  name: 'Annullate',
+                  value: calls.filter(c => c.status === 'cancelled').length,
+                  color: '#ef4444'
+                },
+                {
+                  name: 'Sospese',
+                  value: calls.filter(c => c.status === 'suspended').length,
+                  color: '#f59e0b'
+                }
+              ].filter(item => item.value > 0)}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Grafico performance dipartimenti */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Call per Dipartimento
+            </CardTitle>
+            <CardDescription>Volume di call per dipartimento</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {departmentStats.length === 0 ? (
+              <div className="h-80 flex items-center justify-center text-gray-500">
+                <div className="text-center">
+                  <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>Nessun dato per i dipartimenti</p>
+                </div>
+              </div>
+            ) : (
+              <DepartmentChart data={departmentStats} />
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Grafico rating per dipartimento */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Star className="h-5 w-5" />
+              Rating Medio per Dipartimento
+            </CardTitle>
+            <CardDescription>Performance qualitativa per dipartimento</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {departmentStats.filter(d => d.avgRating > 0).length === 0 ? (
+              <div className="h-80 flex items-center justify-center text-gray-500">
+                <div className="text-center">
+                  <Star className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>Nessun rating disponibile</p>
+                  <p className="text-sm">Completa alcune call per vedere i rating</p>
+                </div>
+              </div>
+            ) : (
+              <DepartmentPerformanceChart 
+                data={departmentStats.filter(d => d.avgRating > 0)} 
+              />
             )}
           </CardContent>
         </Card>

@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Phone, Calendar, Clock, Star, User, CheckCircle, XCircle, Edit3, MoreVertical, Pause, Trash2, RotateCcw, Play, History, Activity, Square, CheckSquare, ChevronDown, Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Phone, Calendar, Clock, Star, User, CheckCircle, XCircle, Edit3, MoreVertical, Pause, Trash2, RotateCcw, Play, History, Activity, Square, CheckSquare, ChevronDown, Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Download, Bell } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,16 @@ import { Call, Employee } from '@/types';
 import { formatDateTime, getCallStatusColor, generateId } from '@/lib/utils';
 import { toast } from 'sonner';
 import { callToasts } from '@/lib/toast';
+import { ExportModal } from '@/components/ExportModal';
+import { useCallNotifications } from '@/hooks/useCallNotifications';
+import { AdvancedFilterPanel } from '@/components/filters/advanced-filter-panel';
+import { CallFilters, filterManager } from '@/lib/filters';
+import { QuickActions } from '@/components/calls/quick-actions';
+import { BulkQuickActions } from '@/components/calls/bulk-quick-actions';
+import { useValidation } from '@/hooks/useValidation';
+import { FieldValidationMessage, ValidationSummary } from '@/components/ui/validation-message';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { autocompleteService } from '@/lib/autocomplete-service';
 
 interface CallWithEmployee extends Call {
   employee: Employee;
@@ -59,6 +69,47 @@ export default function CallsPage() {
   });
   const [bulkEmployeeIds, setBulkEmployeeIds] = useState<Set<string>>(new Set());
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+  
+  // Export modal state
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportType, setExportType] = useState<'calls' | 'employees' | 'both'>('calls');
+  
+  // Advanced filters state
+  const [advancedFilters, setAdvancedFilters] = useState<CallFilters>({});
+  
+  // Validation for call scheduling
+  const callValidation = useValidation({ 
+    entity: 'call', 
+    context: { 
+      employeeId: formData.employeeId,
+      existingCalls: calls,
+      allowPast: false 
+    }
+  });
+  
+  // Validation for call completion
+  const completeCallValidation = useValidation({ 
+    entity: 'call',
+    context: { 
+      allowPast: true,
+      isCompletion: true
+    }
+  });
+
+  // Initialize push notifications
+  const {
+    settings: notificationSettings,
+    updateSettings: updateNotificationSettings,
+    hasPermission,
+    requestPermission,
+    testNotification,
+    isSupported: notificationsSupported
+  } = useCallNotifications(calls.map(c => ({
+    id: c.id,
+    employeeId: c.employeeId,
+    dataSchedulata: c.dataSchedulata,
+    status: c.status
+  })), employees);
 
   useEffect(() => {
     loadData();
@@ -104,21 +155,29 @@ export default function CallsPage() {
       ? Array.from(bulkEmployeeIds)
       : formData.employeeId ? [formData.employeeId] : [];
     
-    if (employeeIds.length === 0) {
-      toast.error(bulkMode ? 'Seleziona almeno un dipendente' : 'Seleziona un dipendente');
-      return;
-    }
+    // Validate form data
+    const validationContext = {
+      employeeId: formData.employeeId,
+      existingCalls: calls,
+      allowPast: false
+    };
     
-    if (!formData.dataSchedulata) {
-      toast.error('Seleziona data e ora');
-      return;
-    }
+    const validationResult = callValidation.validateObject({
+      employeeId: formData.employeeId,
+      dataSchedulata: formData.dataSchedulata,
+      note: formData.note
+    });
     
-    const selectedDate = new Date(formData.dataSchedulata);
-    const now = new Date();
-    
-    if (selectedDate < now) {
-      toast.error('Non puoi schedulare una call nel passato');
+    if (!validationResult.isValid || employeeIds.length === 0 || !formData.dataSchedulata) {
+      if (employeeIds.length === 0) {
+        toast.error(bulkMode ? 'Seleziona almeno un dipendente' : 'Seleziona un dipendente');
+      }
+      if (!formData.dataSchedulata) {
+        toast.error('Seleziona data e ora');
+      }
+      if (!validationResult.isValid) {
+        toast.error('Correggi gli errori di validazione prima di continuare');
+      }
       return;
     }
     
@@ -145,6 +204,9 @@ export default function CallsPage() {
         // Save call to storage
         LocalStorage.addCall(newCall);
         createdCalls.push(newCall);
+        
+        // Learn from this call for autocomplete
+        autocompleteService.learnFromCall(newCall);
         
         // Track creation
         CallTrackingService.trackModification(newCall.id, 'created', undefined, newCall);
@@ -239,35 +301,25 @@ export default function CallsPage() {
       return;
     }
     
-    if (!formData.durata) {
-      toast.error('Inserisci la durata della call');
-      return;
-    }
+    // Validate completion form
+    const completionValidationResult = completeCallValidation.validateObject({
+      durata: parseInt(formData.durata) || 0,
+      rating: parseInt(formData.rating) || 0,
+      note: formData.note,
+      nextCallDate: formData.nextCallDate
+    });
     
-    const duration = parseInt(formData.durata);
-    if (isNaN(duration) || duration <= 0) {
-      toast.error('La durata deve essere un numero positivo');
-      return;
-    }
-    
-    if (duration > 480) {
-      toast.error('La durata non può superare 8 ore (480 minuti)');
-      return;
-    }
-    
-    if (!formData.rating) {
-      toast.error('Seleziona una valutazione');
-      return;
-    }
-    
-    if (formData.nextCallDate) {
-      const nextCallDate = new Date(formData.nextCallDate);
-      const now = new Date();
-      
-      if (nextCallDate <= now) {
-        toast.error('La data della prossima call deve essere nel futuro');
-        return;
+    if (!completionValidationResult.isValid || !formData.durata || !formData.rating) {
+      if (!formData.durata) {
+        toast.error('Inserisci la durata della call');
       }
+      if (!formData.rating) {
+        toast.error('Seleziona una valutazione');
+      }
+      if (!completionValidationResult.isValid) {
+        toast.error('Correggi gli errori di validazione prima di continuare');
+      }
+      return;
     }
     
     try {
@@ -281,6 +333,10 @@ export default function CallsPage() {
       };
       
       LocalStorage.updateCall(selectedCall.id, updatedCall);
+      
+      // Learn from completed call for autocomplete
+      const completedCall = { ...selectedCall, ...updatedCall };
+      autocompleteService.learnFromCall(completedCall);
       
       // Track completion
       CallTrackingService.trackModification(selectedCall.id, 'completed', selectedCall, updatedCall);
@@ -739,18 +795,18 @@ export default function CallsPage() {
     }
   };
 
-  // Funzioni per filtri e ordinamento delle call
-  const filteredCalls = calls.filter(call => {
-    const matchesSearch = callSearchFilter === '' || 
-      `${call.employee.nome} ${call.employee.cognome}`.toLowerCase().includes(callSearchFilter.toLowerCase()) ||
-      call.employee.posizione.toLowerCase().includes(callSearchFilter.toLowerCase()) ||
-      call.employee.dipartimento.toLowerCase().includes(callSearchFilter.toLowerCase()) ||
-      call.note?.toLowerCase().includes(callSearchFilter.toLowerCase());
+  // Apply advanced filters using filter manager
+  const filteredCalls = React.useMemo(() => {
+    // Combine advanced filters with existing legacy filters for backward compatibility
+    const combinedFilters: CallFilters = {
+      ...advancedFilters,
+      // Merge legacy search and status filters
+      ...(callSearchFilter && { search: callSearchFilter }),
+      ...(statusFilter !== 'all' && { status: [statusFilter as Call['status']] })
+    };
     
-    const matchesStatus = statusFilter === 'all' || call.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  });
+    return filterManager.filterCalls(calls, employees, combinedFilters);
+  }, [calls, employees, advancedFilters, callSearchFilter, statusFilter]);
 
   const sortedCalls = [...filteredCalls].sort((a, b) => {
     if (!callSortField) return 0;
@@ -828,6 +884,13 @@ export default function CallsPage() {
         </div>
       </div>
 
+      {/* Advanced Filters */}
+      <AdvancedFilterPanel
+        onFiltersChange={setAdvancedFilters}
+        currentFilters={advancedFilters}
+        filterOptions={filterManager.getCallFilterOptions(calls, employees)}
+      />
+
       {/* Bulk Actions Bar */}
       {bulkMode && (
         <Card className="fade-in smooth-hover">
@@ -864,40 +927,49 @@ export default function CallsPage() {
               </div>
               
               {showBulkActions && (
-                <div className="flex space-x-2">
-                  {getSelectedCallsData().some(call => call.status === 'scheduled') && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Quick Actions */}
+                  <BulkQuickActions
+                    selectedCalls={getSelectedCallsData()}
+                    onActionComplete={loadData}
+                  />
+                  
+                  {/* Standard Bulk Actions */}
+                  <div className="flex space-x-2 border-l pl-2">
+                    {getSelectedCallsData().some(call => call.status === 'scheduled') && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={bulkSuspendCalls}
+                        className="text-yellow-700 hover:text-yellow-800"
+                      >
+                        <Pause className="mr-2 h-4 w-4" />
+                        Sospendi Selezionate
+                      </Button>
+                    )}
+                    
+                    {getSelectedCallsData().some(call => call.status === 'suspended') && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={bulkResumeCalls}
+                        className="text-green-700 hover:text-green-800"
+                      >
+                        <Play className="mr-2 h-4 w-4" />
+                        Riattiva Selezionate
+                      </Button>
+                    )}
+                    
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={bulkSuspendCalls}
-                      className="text-yellow-700 hover:text-yellow-800"
+                      onClick={bulkDeleteCalls}
+                      className="text-red-700 hover:text-red-800"
                     >
-                      <Pause className="mr-2 h-4 w-4" />
-                      Sospendi Selezionate
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Elimina Selezionate
                     </Button>
-                  )}
-                  
-                  {getSelectedCallsData().some(call => call.status === 'suspended') && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={bulkResumeCalls}
-                      className="text-green-700 hover:text-green-800"
-                    >
-                      <Play className="mr-2 h-4 w-4" />
-                      Riattiva Selezionate
-                    </Button>
-                  )}
-                  
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={bulkDeleteCalls}
-                    className="text-red-700 hover:text-red-800"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Elimina Selezionate
-                  </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -917,6 +989,15 @@ export default function CallsPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={scheduleCall} className="space-y-4">
+              {/* Validation Summary */}
+              {callValidation.hasErrors && (
+                <ValidationSummary
+                  errorCount={Object.values(callValidation.fieldValidations).reduce((acc, val) => acc + val.errors.length, 0)}
+                  warningCount={Object.values(callValidation.fieldValidations).reduce((acc, val) => acc + val.warnings.length, 0)}
+                  infoCount={Object.values(callValidation.fieldValidations).reduce((acc, val) => acc + val.info.length, 0)}
+                />
+              )}
+              
               <div>
                 <label className="block text-sm font-medium mb-2">
                   {bulkMode ? 'Dipendenti' : 'Dipendente'}
@@ -925,12 +1006,17 @@ export default function CallsPage() {
                 {bulkMode ? (
                   <div className="space-y-3">
                     {/* Search Filter */}
-                    <Input
-                      type="text"
-                      placeholder="Cerca dipendenti per nome, posizione, dipartimento..."
+                    <Autocomplete
                       value={employeeSearchQuery}
-                      onChange={(e) => setEmployeeSearchQuery(e.target.value)}
+                      onChange={setEmployeeSearchQuery}
+                      options={autocompleteService.getEmployeeSuggestions(employeeSearchQuery)}
+                      placeholder="Cerca dipendenti per nome, posizione, dipartimento..."
                       className="w-full"
+                      allowCustom={true}
+                      showFrequency={false}
+                      onSelect={(option) => {
+                        autocompleteService.addSuggestion('employee-search', option.value, 'employee-selection');
+                      }}
                     />
                     
                     {/* Bulk Selection Controls */}
@@ -1018,17 +1104,45 @@ export default function CallsPage() {
                 <Input
                   type="datetime-local"
                   value={formData.dataSchedulata}
-                  onChange={(e) => setFormData({...formData, dataSchedulata: e.target.value})}
+                  onChange={(e) => {
+                    setFormData({...formData, dataSchedulata: e.target.value});
+                    callValidation.validateField('dataSchedulata', e.target.value);
+                  }}
                   required
+                  className={callValidation.getFieldErrors('dataSchedulata').length > 0 ? 'border-red-300' : ''}
+                />
+                <FieldValidationMessage
+                  fieldName="dataSchedulata"
+                  errors={callValidation.getFieldErrors('dataSchedulata')}
+                  warnings={callValidation.getFieldWarnings('dataSchedulata')}
+                  info={callValidation.getFieldInfo('dataSchedulata')}
+                  showAll={true}
                 />
               </div>
               
               <div>
                 <label className="block text-sm font-medium mb-2">Note (opzionale)</label>
-                <Textarea
+                <Autocomplete
                   value={formData.note}
-                  onChange={(e) => setFormData({...formData, note: e.target.value})}
+                  onChange={(value) => {
+                    setFormData({...formData, note: value});
+                    callValidation.validateField('note', value);
+                  }}
+                  options={autocompleteService.getCallNotesSuggestions()}
                   placeholder="Argomenti da discutere, obiettivi della call..."
+                  className={callValidation.getFieldErrors('note').length > 0 ? 'border-red-300' : ''}
+                  allowCustom={true}
+                  showFrequency={true}
+                  onSelect={(option) => {
+                    autocompleteService.addSuggestion('call-notes', option.value, 'call-scheduling');
+                  }}
+                />
+                <FieldValidationMessage
+                  fieldName="note"
+                  errors={callValidation.getFieldErrors('note')}
+                  warnings={callValidation.getFieldWarnings('note')}
+                  info={callValidation.getFieldInfo('note')}
+                  showAll={true}
                 />
               </div>
               
@@ -1055,15 +1169,35 @@ export default function CallsPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={completeCall} className="space-y-4">
+              {/* Validation Summary */}
+              {completeCallValidation.hasErrors && (
+                <ValidationSummary
+                  errorCount={Object.values(completeCallValidation.fieldValidations).reduce((acc, val) => acc + val.errors.length, 0)}
+                  warningCount={Object.values(completeCallValidation.fieldValidations).reduce((acc, val) => acc + val.warnings.length, 0)}
+                  infoCount={Object.values(completeCallValidation.fieldValidations).reduce((acc, val) => acc + val.info.length, 0)}
+                />
+              )}
+              
               <div>
                 <label className="block text-sm font-medium mb-2">Durata (minuti)</label>
                 <Input
                   type="number"
                   min="1"
                   value={formData.durata}
-                  onChange={(e) => setFormData({...formData, durata: e.target.value})}
+                  onChange={(e) => {
+                    setFormData({...formData, durata: e.target.value});
+                    completeCallValidation.validateField('durata', parseInt(e.target.value) || 0);
+                  }}
                   placeholder="30"
                   required
+                  className={completeCallValidation.getFieldErrors('durata').length > 0 ? 'border-red-300' : ''}
+                />
+                <FieldValidationMessage
+                  fieldName="durata"
+                  errors={completeCallValidation.getFieldErrors('durata')}
+                  warnings={completeCallValidation.getFieldWarnings('durata')}
+                  info={completeCallValidation.getFieldInfo('durata')}
+                  showAll={true}
                 />
               </div>
               
@@ -1084,11 +1218,19 @@ export default function CallsPage() {
               
               <div>
                 <label className="block text-sm font-medium mb-2">Note della call</label>
-                <Textarea
+                <Autocomplete
                   value={formData.note}
-                  onChange={(e) => setFormData({...formData, note: e.target.value})}
+                  onChange={(value) => {
+                    setFormData({...formData, note: value});
+                    completeCallValidation.validateField('note', value);
+                  }}
+                  options={autocompleteService.getCallNotesSuggestions()}
                   placeholder="Riassunto della discussione, punti salienti, feedback..."
-                  rows={4}
+                  allowCustom={true}
+                  showFrequency={true}
+                  onSelect={(option) => {
+                    autocompleteService.addSuggestion('call-notes', option.value, 'call-completion');
+                  }}
                 />
               </div>
               
@@ -1137,10 +1279,16 @@ export default function CallsPage() {
               
               <div>
                 <label className="block text-sm font-medium mb-2">Note (opzionale)</label>
-                <Textarea
+                <Autocomplete
                   value={rescheduleData.note}
-                  onChange={(e) => setRescheduleData({...rescheduleData, note: e.target.value})}
+                  onChange={(value) => setRescheduleData({...rescheduleData, note: value})}
+                  options={autocompleteService.getCallNotesSuggestions()}
                   placeholder="Motivo della riprogrammazione, nuovi argomenti da discutere..."
+                  allowCustom={true}
+                  showFrequency={true}
+                  onSelect={(option) => {
+                    autocompleteService.addSuggestion('reschedule-notes', option.value, 'call-rescheduling');
+                  }}
                 />
               </div>
               
@@ -1226,18 +1374,66 @@ export default function CallsPage() {
               <CardTitle>Storico Call ({sortedCalls.length})</CardTitle>
               <CardDescription>Tutte le call pianificate e completate</CardDescription>
             </div>
+            <div className="flex items-center gap-2">
+              {/* Notification settings button */}
+              {notificationsSupported && (
+                <button
+                  onClick={async () => {
+                    if (!hasPermission) {
+                      const granted = await requestPermission();
+                      if (granted) {
+                        updateNotificationSettings({ enabled: true });
+                        toast.success('Notifiche abilitate!');
+                      }
+                    } else {
+                      const success = await testNotification();
+                      if (success) {
+                        toast.success('Test notifica inviato!');
+                      }
+                    }
+                  }}
+                  className={`p-2 rounded-lg transition-colors ${
+                    notificationSettings.enabled && hasPermission
+                      ? 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                  title={hasPermission ? 'Test notifica' : 'Abilita notifiche'}
+                >
+                  <Bell className="h-4 w-4" />
+                </button>
+              )}
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setExportType('calls');
+                  setExportModalOpen(true);
+                }}
+                className="scale-hover"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Esporta Call
+              </Button>
+            </div>
           </div>
           
           {/* Filtri e Ricerca */}
           <div className="flex flex-col md:flex-row gap-4 mt-4">
             <div className="flex-1">
               <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Cerca per nome, posizione, dipartimento o note..."
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400 z-10" />
+                <Autocomplete
                   value={callSearchFilter}
-                  onChange={(e) => setCallSearchFilter(e.target.value)}
+                  onChange={setCallSearchFilter}
+                  options={autocompleteService.getSuggestions('call-search')}
+                  placeholder="Cerca per nome, posizione, dipartimento o note..."
                   className="pl-10"
+                  allowCustom={true}
+                  showFrequency={false}
+                  onSelect={(option) => {
+                    autocompleteService.addSuggestion('call-search', option.value, 'call-filtering');
+                  }}
                 />
               </div>
             </div>
@@ -1253,6 +1449,45 @@ export default function CallsPage() {
               <option value="suspended">Sospesa</option>
               <option value="rescheduled">Riprogrammata</option>
             </select>
+          </div>
+
+          {/* Conteggio call filtrate */}
+          <div className="flex items-center justify-between mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="font-medium text-blue-900">
+                {filteredCalls.length === calls.length ? (
+                  <>Visualizzando tutte le <span className="font-bold">{calls.length}</span> call</>
+                ) : (
+                  <>
+                    Filtrate <span className="font-bold">{filteredCalls.length}</span> su <span className="font-bold">{calls.length}</span> call totali
+                  </>
+                )}
+              </span>
+              {(callSearchFilter || statusFilter !== 'all') && (
+                <button 
+                  onClick={() => {
+                    setCallSearchFilter('');
+                    setStatusFilter('all');
+                  }}
+                  className="text-blue-600 hover:text-blue-800 underline text-xs"
+                >
+                  Rimuovi filtri
+                </button>
+              )}
+            </div>
+            {filteredCalls.length > 0 && (
+              <div className="text-xs text-blue-600">
+                {statusFilter !== 'all' && (
+                  <span className="bg-blue-100 px-2 py-1 rounded-full">
+                    {statusFilter === 'scheduled' && '🟡 Programmate'}
+                    {statusFilter === 'completed' && '🟢 Completate'}  
+                    {statusFilter === 'cancelled' && '🔴 Annullate'}
+                    {statusFilter === 'suspended' && '🟠 Sospese'}
+                    {statusFilter === 'rescheduled' && '🔵 Riprogrammate'}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Header di ordinamento */}
@@ -1368,6 +1603,15 @@ export default function CallsPage() {
                           <CheckCircle className="w-4 h-4 mr-2" />
                           Completa
                         </Button>
+                      )}
+
+                      {/* Quick Actions */}
+                      {!bulkMode && (
+                        <QuickActions
+                          call={call}
+                          employee={call.employee}
+                          onActionComplete={loadData}
+                        />
                       )}
 
                       {/* Dropdown Menu for Actions */}
@@ -1546,6 +1790,20 @@ export default function CallsPage() {
             )}
         </CardContent>
       </Card>
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        data={{
+          calls: exportType === 'calls' || exportType === 'both' ? sortedCalls : undefined,
+          employees: exportType === 'employees' || exportType === 'both' ? employees : undefined
+        }}
+        type={exportType}
+        title={exportType === 'calls' ? 'Esporta Storico Call' : 
+               exportType === 'employees' ? 'Esporta Dipendenti' : 
+               'Esporta Dati Completi'}
+      />
     </div>
   );
 }

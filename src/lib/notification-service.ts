@@ -1,6 +1,7 @@
 import { Call, Employee } from '@/types';
 import { LocalStorage } from './storage';
 import { formatDateTime, isToday } from './utils';
+import { indexedDBService } from './indexed-db';
 
 export interface Notification {
   id: string;
@@ -87,10 +88,23 @@ export class NotificationService {
   
   private static worker: Worker | null = null;
   private static isInitialized = false;
+  private static useIndexedDB = false;
 
   // Initialize notification service
   static async initialize(): Promise<boolean> {
     try {
+      // Initialize IndexedDB
+      const indexedDBInitialized = await indexedDBService.initialize();
+      if (indexedDBInitialized) {
+        this.useIndexedDB = true;
+        console.log('✅ IndexedDB initialized for notifications');
+        
+        // Migrate existing localStorage data
+        await this.migrateFromLocalStorage();
+      } else {
+        console.warn('⚠️ IndexedDB initialization failed, using localStorage fallback');
+      }
+
       // Request browser notification permission
       if ('Notification' in window && Notification.permission === 'default') {
         const permission = await Notification.requestPermission();
@@ -139,6 +153,18 @@ export class NotificationService {
     this.processPendingNotifications();
   }
 
+  // Migration from localStorage to IndexedDB
+  private static async migrateFromLocalStorage(): Promise<void> {
+    if (!this.useIndexedDB) return;
+    
+    try {
+      await indexedDBService.syncWithLocalStorage();
+      console.log('✅ Notifications migrated from localStorage to IndexedDB');
+    } catch (error) {
+      console.error('Failed to migrate notifications:', error);
+    }
+  }
+
   // Settings management
   static getSettings(): NotificationSettings {
     const saved = localStorage.getItem(this.SETTINGS_KEY);
@@ -150,22 +176,34 @@ export class NotificationService {
   }
 
   // Notification CRUD operations
-  static getNotifications(): Notification[] {
+  static async getNotifications(): Promise<Notification[]> {
+    if (this.useIndexedDB) {
+      const queueItems = await indexedDBService.getAllNotifications();
+      return queueItems.map(item => item.notification);
+    }
+    
+    // Fallback to localStorage
     const saved = localStorage.getItem(this.STORAGE_KEY);
     return saved ? JSON.parse(saved) : [];
   }
 
-  private static saveNotifications(notifications: Notification[]): void {
+  private static async saveNotifications(notifications: Notification[]): Promise<void> {
+    if (this.useIndexedDB) {
+      // For IndexedDB, notifications are stored individually
+      return;
+    }
+    
+    // Fallback to localStorage
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(notifications));
   }
 
-  static createNotification(
+  static async createNotification(
     type: Notification['type'],
     title: string,
     message: string,
     scheduledFor: Date,
     options: Partial<Notification> = {}
-  ): Notification {
+  ): Promise<Notification> {
     const notification: Notification = {
       id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       type,
@@ -179,15 +217,20 @@ export class NotificationService {
       ...options
     };
 
-    const notifications = this.getNotifications();
-    notifications.push(notification);
-    this.saveNotifications(notifications);
+    if (this.useIndexedDB) {
+      await indexedDBService.storeNotification(notification);
+    } else {
+      // Fallback to localStorage
+      const notifications = await this.getNotifications();
+      notifications.push(notification);
+      await this.saveNotifications(notifications);
+    }
 
     return notification;
   }
 
   // Core notification scheduling methods
-  static scheduleCallReminder(call: Call, employee: Employee): Notification | null {
+  static async scheduleCallReminder(call: Call, employee: Employee): Promise<Notification | null> {
     const settings = this.getSettings();
     
     if (!settings.enabled || !settings.remindersEnabled) {
@@ -205,7 +248,7 @@ export class NotificationService {
     const title = `Promemoria Call HR`;
     const message = `Call programmata con ${employee.nome} ${employee.cognome} alle ${formatDateTime(callDate)}`;
 
-    return this.createNotification('reminder', title, message, reminderDate, {
+    return await this.createNotification('reminder', title, message, reminderDate, {
       priority: 'medium',
       callId: call.id,
       employeeId: employee.id,
@@ -217,7 +260,7 @@ export class NotificationService {
     });
   }
 
-  static scheduleEscalation(call: Call, employee: Employee): Notification | null {
+  static async scheduleEscalation(call: Call, employee: Employee): Promise<Notification | null> {
     const settings = this.getSettings();
     
     if (!settings.enabled || !settings.escalationEnabled) {
@@ -230,7 +273,7 @@ export class NotificationService {
     const title = `Call in Ritardo - Escalation`;
     const message = `Call con ${employee.nome} ${employee.cognome} non completata dopo ${settings.escalationHours}h`;
 
-    return this.createNotification('escalation', title, message, escalationDate, {
+    return await this.createNotification('escalation', title, message, escalationDate, {
       priority: 'high',
       callId: call.id,
       employeeId: employee.id,
@@ -244,22 +287,32 @@ export class NotificationService {
 
   // Process pending notifications
   private static async processPendingNotifications(): Promise<void> {
-    const notifications = this.getNotifications();
     const now = new Date();
     const settings = this.getSettings();
 
-    // Filter due notifications
-    const dueNotifications = notifications.filter(notif => 
-      notif.status === 'pending' && new Date(notif.scheduledFor) <= now
-    );
+    // Get due notifications
+    let dueNotifications: any[] = [];
+    
+    if (this.useIndexedDB) {
+      const queueItems = await indexedDBService.getDueNotifications();
+      dueNotifications = queueItems;
+    } else {
+      // Fallback to localStorage
+      const notifications = await this.getNotifications();
+      dueNotifications = notifications
+        .filter(notif => notif.status === 'pending' && new Date(notif.scheduledFor) <= now)
+        .map(notif => ({ notification: notif }));
+    }
 
-    for (const notification of dueNotifications) {
+    for (const item of dueNotifications) {
+      const notification = item.notification;
+      
       try {
         // Check if it's quiet hours
         if (this.isQuietHours(settings.quietHours)) {
           // Reschedule for after quiet hours, unless urgent
           if (notification.priority !== 'urgent') {
-            this.rescheduleAfterQuietHours(notification, settings.quietHours);
+            await this.rescheduleAfterQuietHours(notification, settings.quietHours);
             continue;
           }
         }
@@ -268,20 +321,32 @@ export class NotificationService {
         await this.sendNotification(notification);
         
         // Mark as sent
-        notification.sentAt = new Date();
-        notification.status = 'sent';
+        if (this.useIndexedDB) {
+          await indexedDBService.markAsSent(notification.id);
+        } else {
+          notification.sentAt = new Date();
+          notification.status = 'sent';
+        }
         
       } catch (error) {
         console.error('Failed to send notification:', notification.id, error);
-        notification.status = 'failed';
+        
+        if (this.useIndexedDB) {
+          await indexedDBService.markAsFailed(notification.id, error instanceof Error ? error.message : String(error));
+        } else {
+          notification.status = 'failed';
+        }
       }
     }
 
-    // Save updated notifications
-    this.saveNotifications(notifications);
+    // Save updated notifications (localStorage fallback)
+    if (!this.useIndexedDB && dueNotifications.length > 0) {
+      const allNotifications = await this.getNotifications();
+      await this.saveNotifications(allNotifications);
+    }
 
     // Clean up old notifications (older than 30 days)
-    this.cleanupOldNotifications();
+    await this.cleanupOldNotifications();
   }
 
   // Send notification through various channels
@@ -371,29 +436,38 @@ export class NotificationService {
     return currentTime >= quietHours.start || currentTime <= quietHours.end;
   }
 
-  private static rescheduleAfterQuietHours(
+  private static async rescheduleAfterQuietHours(
     notification: Notification, 
     quietHours: NotificationSettings['quietHours']
-  ): void {
+  ): Promise<void> {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const [hours, minutes] = quietHours.end.split(':');
     tomorrow.setHours(parseInt(hours), parseInt(minutes), 0, 0);
     
-    notification.scheduledFor = tomorrow;
+    if (this.useIndexedDB) {
+      await indexedDBService.updateNotification(notification.id, { scheduledFor: tomorrow });
+    } else {
+      notification.scheduledFor = tomorrow;
+    }
   }
 
-  private static cleanupOldNotifications(): void {
-    const notifications = this.getNotifications();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  private static async cleanupOldNotifications(): Promise<void> {
+    if (this.useIndexedDB) {
+      await indexedDBService.cleanup(30);
+    } else {
+      // Fallback to localStorage
+      const notifications = await this.getNotifications();
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const filtered = notifications.filter(notif => 
-      new Date(notif.createdAt) > thirtyDaysAgo
-    );
+      const filtered = notifications.filter(notif => 
+        new Date(notif.createdAt) > thirtyDaysAgo
+      );
 
-    if (filtered.length !== notifications.length) {
-      this.saveNotifications(filtered);
+      if (filtered.length !== notifications.length) {
+        await this.saveNotifications(filtered);
+      }
     }
   }
 
@@ -424,43 +498,59 @@ export class NotificationService {
     return this.scheduleEscalation(call, employee);
   }
 
-  static cancelNotification(id: string): void {
-    const notifications = this.getNotifications();
-    const notification = notifications.find(n => n.id === id);
-    
-    if (notification && notification.status === 'pending') {
-      notification.status = 'cancelled';
-      this.saveNotifications(notifications);
+  static async cancelNotification(id: string): Promise<void> {
+    if (this.useIndexedDB) {
+      await indexedDBService.cancelNotification(id);
+    } else {
+      // Fallback to localStorage
+      const notifications = await this.getNotifications();
+      const notification = notifications.find(n => n.id === id);
+      
+      if (notification && notification.status === 'pending') {
+        notification.status = 'cancelled';
+        await this.saveNotifications(notifications);
+      }
     }
   }
 
-  static cancelCallNotifications(callId: string): void {
-    const notifications = this.getNotifications();
-    const callNotifications = notifications.filter(n => n.callId === callId);
-    
-    callNotifications.forEach(notification => {
-      if (notification.status === 'pending') {
-        notification.status = 'cancelled';
-      }
-    });
-    
-    this.saveNotifications(notifications);
+  static async cancelCallNotifications(callId: string): Promise<void> {
+    if (this.useIndexedDB) {
+      await indexedDBService.cancelCallNotifications(callId);
+    } else {
+      // Fallback to localStorage
+      const notifications = await this.getNotifications();
+      const callNotifications = notifications.filter(n => n.callId === callId);
+      
+      callNotifications.forEach(notification => {
+        if (notification.status === 'pending') {
+          notification.status = 'cancelled';
+        }
+      });
+      
+      await this.saveNotifications(notifications);
+    }
   }
 
   // Get notification statistics
-  static getStats(): {
+  static async getStats(): Promise<{
     total: number;
     pending: number;
     sent: number;
     failed: number;
-  } {
-    const notifications = this.getNotifications();
-    
-    return {
-      total: notifications.length,
-      pending: notifications.filter(n => n.status === 'pending').length,
-      sent: notifications.filter(n => n.status === 'sent').length,
-      failed: notifications.filter(n => n.status === 'failed').length
-    };
+    cancelled?: number;
+  }> {
+    if (this.useIndexedDB) {
+      return await indexedDBService.getStats();
+    } else {
+      // Fallback to localStorage
+      const notifications = await this.getNotifications();
+      
+      return {
+        total: notifications.length,
+        pending: notifications.filter(n => n.status === 'pending').length,
+        sent: notifications.filter(n => n.status === 'sent').length,
+        failed: notifications.filter(n => n.status === 'failed').length
+      };
+    }
   }
 }

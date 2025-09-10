@@ -79,10 +79,34 @@ async function processNotificationQueue() {
   }
 }
 
-// Get queued notifications (placeholder)
+// Get queued notifications from IndexedDB
 async function getQueuedNotifications() {
-  // In a real implementation, this would read from IndexedDB
-  return [];
+  try {
+    const db = await openNotificationDB();
+    const transaction = db.transaction(['notifications'], 'readonly');
+    const store = transaction.objectStore('notifications');
+    const request = store.getAll();
+    
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        const items = request.result;
+        const now = new Date();
+        
+        // Filter for due notifications
+        const dueItems = items.filter(item => 
+          item.notification.status === 'pending' &&
+          new Date(item.notification.scheduledFor) <= now &&
+          (!item.nextRetry || new Date(item.nextRetry) <= now)
+        );
+        
+        resolve(dueItems);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.error('Failed to get queued notifications:', error);
+    return [];
+  }
 }
 
 // Send a notification
@@ -138,10 +162,34 @@ function shouldSendNotification(notification) {
   return true;
 }
 
-// Mark notification as sent (placeholder)
+// Mark notification as sent in IndexedDB
 async function markNotificationAsSent(notificationId) {
-  // In a real implementation, this would update IndexedDB
-  console.log('Marked notification as sent:', notificationId);
+  try {
+    const db = await openNotificationDB();
+    const transaction = db.transaction(['notifications'], 'readwrite');
+    const store = transaction.objectStore('notifications');
+    
+    const getRequest = store.get(notificationId);
+    
+    return new Promise((resolve, reject) => {
+      getRequest.onsuccess = () => {
+        const item = getRequest.result;
+        if (item) {
+          item.notification.status = 'sent';
+          item.notification.sentAt = new Date();
+          
+          const putRequest = store.put(item);
+          putRequest.onsuccess = () => resolve();
+          putRequest.onerror = () => reject(putRequest.error);
+        } else {
+          resolve(); // Item not found, nothing to update
+        }
+      };
+      getRequest.onerror = () => reject(getRequest.error);
+    });
+  } catch (error) {
+    console.error('Failed to mark notification as sent:', error);
+  }
 }
 
 // Handle messages from main thread
@@ -162,14 +210,68 @@ self.addEventListener('message', event => {
   }
 });
 
+// Open IndexedDB connection
+function openNotificationDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('hr-tracker-notifications', 1);
+    
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+    
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      
+      if (!db.objectStoreNames.contains('notifications')) {
+        const store = db.createObjectStore('notifications', { keyPath: 'id' });
+        store.createIndex('scheduledFor', 'notification.scheduledFor');
+        store.createIndex('status', 'notification.status');
+        store.createIndex('priority', 'notification.priority');
+        store.createIndex('callId', 'notification.callId');
+      }
+    };
+  });
+}
+
 // Schedule notification for later delivery
-function scheduleNotification(notificationData) {
-  // In a real implementation, this would store in IndexedDB
-  console.log('Scheduled notification:', notificationData);
+async function scheduleNotification(notificationData) {
+  try {
+    const db = await openNotificationDB();
+    const transaction = db.transaction(['notifications'], 'readwrite');
+    const store = transaction.objectStore('notifications');
+    
+    const queueItem = {
+      id: notificationData.id,
+      notification: notificationData,
+      retryCount: 0,
+      lastAttempt: new Date(),
+      nextRetry: new Date(notificationData.scheduledFor)
+    };
+    
+    store.put(queueItem);
+    console.log('Scheduled notification:', notificationData.id);
+  } catch (error) {
+    console.error('Failed to schedule notification:', error);
+  }
 }
 
 // Cancel scheduled notification
-function cancelNotification(notificationId) {
-  // In a real implementation, this would remove from IndexedDB
-  console.log('Cancelled notification:', notificationId);
+async function cancelNotification(notificationId) {
+  try {
+    const db = await openNotificationDB();
+    const transaction = db.transaction(['notifications'], 'readwrite');
+    const store = transaction.objectStore('notifications');
+    
+    const getRequest = store.get(notificationId);
+    
+    getRequest.onsuccess = () => {
+      const item = getRequest.result;
+      if (item) {
+        item.notification.status = 'cancelled';
+        store.put(item);
+        console.log('Cancelled notification:', notificationId);
+      }
+    };
+  } catch (error) {
+    console.error('Failed to cancel notification:', error);
+  }
 }
