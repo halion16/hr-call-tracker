@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { Sidebar } from "@/components/layout/sidebar";
+import { NotificationProvider } from "@/components/notifications/notification-provider";
+import { CalendarSyncProvider } from "@/components/providers/calendar-sync-provider";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -19,20 +21,24 @@ export default function RootLayout({
   return (
     <html lang="it">
       <body className={inter.className}>
-        <div className="flex h-screen bg-gray-50">
-          <Sidebar />
-          <main className="flex-1 overflow-y-auto">
-            <div className="p-6">
-              {children}
+        <NotificationProvider>
+          <CalendarSyncProvider>
+            <div className="flex h-screen bg-gray-50">
+              <Sidebar />
+              <main className="flex-1 overflow-y-auto">
+                <div className="p-6">
+                  {children}
+                </div>
+              </main>
             </div>
-          </main>
-        </div>
-        <Toaster 
-          position="top-right" 
-          richColors 
-          closeButton 
-          duration={4000}
-        />
+            <Toaster 
+              position="top-right" 
+              richColors 
+              closeButton 
+              duration={4000}
+            />
+          </CalendarSyncProvider>
+        </NotificationProvider>
       </body>
     </html>
   );

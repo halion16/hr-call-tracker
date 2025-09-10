@@ -18,8 +18,11 @@ export interface Call {
   durata?: number;
   note?: string;
   rating?: number;
-  status: 'scheduled' | 'completed' | 'cancelled';
+  status: 'scheduled' | 'completed' | 'cancelled' | 'suspended' | 'rescheduled';
   nextCallDate?: string;
+  googleCalendarEventId?: string;
+  lastSyncedAt?: string;
+  modifications?: CallModification[];
 }
 
 export interface User {
@@ -54,4 +57,14 @@ export interface CallCompletionData {
   note: string;
   rating: number;
   nextCallDate?: string;
+}
+
+export interface CallModification {
+  id: string;
+  timestamp: string;
+  action: 'created' | 'rescheduled' | 'suspended' | 'resumed' | 'completed' | 'cancelled' | 'deleted';
+  previousData?: Partial<Call>;
+  newData?: Partial<Call>;
+  reason?: string;
+  userId?: string;
 }

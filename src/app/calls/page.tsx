@@ -2,14 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Phone, Calendar, Clock, Star, User, CheckCircle, XCircle, Edit3 } from 'lucide-react';
+import { Phone, Calendar, Clock, Star, User, CheckCircle, XCircle, Edit3, MoreVertical, Pause, Trash2, RotateCcw, Play, History, Activity } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { LocalStorage } from '@/lib/storage';
+import { NotificationService } from '@/lib/notification-service';
+import { GoogleCalendarService } from '@/lib/google-calendar-service';
+import { CalendarSyncService } from '@/lib/calendar-sync-service';
+import { CallTrackingService } from '@/lib/call-tracking-service';
 import { Call, Employee } from '@/types';
 import { formatDateTime, getCallStatusColor, generateId } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface CallWithEmployee extends Call {
   employee: Employee;
@@ -24,6 +29,14 @@ export default function CallsPage() {
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [showCompleteForm, setShowCompleteForm] = useState(false);
   const [selectedCall, setSelectedCall] = useState<Call | null>(null);
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [rescheduleData, setRescheduleData] = useState({
+    dataSchedulata: '',
+    note: ''
+  });
+  const [showHistory, setShowHistory] = useState(false);
+  const [selectedCallHistory, setSelectedCallHistory] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     employeeId: '',
     dataSchedulata: '',
@@ -36,6 +49,20 @@ export default function CallsPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (openDropdown && !(event.target as Element).closest('.relative')) {
+        setOpenDropdown(null);
+      }
+    };
+    
+    if (openDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [openDropdown]);
 
   const loadData = () => {
     const loadedEmployees = LocalStorage.getEmployees();
@@ -55,16 +82,16 @@ export default function CallsPage() {
     ));
   };
 
-  const scheduleCall = (e: React.FormEvent) => {
+  const scheduleCall = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.employeeId) {
-      alert('Per favore seleziona un dipendente');
+      toast.error('Seleziona un dipendente');
       return;
     }
     
     if (!formData.dataSchedulata) {
-      alert('Per favore seleziona data e ora');
+      toast.error('Seleziona data e ora');
       return;
     }
     
@@ -72,7 +99,14 @@ export default function CallsPage() {
     const now = new Date();
     
     if (selectedDate < now) {
-      alert('Non puoi schedulare una call nel passato');
+      toast.error('Non puoi schedulare una call nel passato');
+      return;
+    }
+    
+    // Find employee for notifications
+    const employee = employees.find(emp => emp.id === formData.employeeId);
+    if (!employee) {
+      toast.error('Dipendente non trovato');
       return;
     }
     
@@ -84,37 +118,98 @@ export default function CallsPage() {
       status: 'scheduled'
     };
     
-    LocalStorage.addCall(newCall);
-    loadData();
-    resetForm();
+    try {
+      // Save call to storage
+      LocalStorage.addCall(newCall);
+      
+      // Track creation
+      CallTrackingService.trackModification(newCall.id, 'created', undefined, newCall);
+      
+      // Create automatic notifications
+      const reminder = await NotificationService.createCallReminder(newCall.id);
+      const escalation = await NotificationService.createCallEscalation(newCall.id);
+      
+      // Create Google Calendar event if connected
+      let calendarEvent = null;
+      try {
+        if (GoogleCalendarService.isConnected()) {
+          calendarEvent = await GoogleCalendarService.createCallEvent({
+            employeeName: `${employee.nome} ${employee.cognome}`,
+            employeeEmail: employee.email,
+            scheduledDate: new Date(formData.dataSchedulata),
+            employeeData: employee
+          });
+
+          // Update call with calendar event ID
+          if (calendarEvent) {
+            newCall.googleCalendarEventId = calendarEvent.id;
+            newCall.lastSyncedAt = new Date().toISOString();
+            LocalStorage.updateCall(newCall.id, newCall);
+          }
+        }
+      } catch (calendarError) {
+        console.warn('Calendar event creation failed:', calendarError);
+        // Non blocchiamo il processo se il calendario fallisce
+      }
+      
+      // Show success message with notification info
+      let notificationMessage = `Call programmata con ${employee.nome} ${employee.cognome}`;
+      if (reminder) {
+        notificationMessage += ' • Promemoria attivato';
+      }
+      if (escalation) {
+        notificationMessage += ' • Escalation programmata';
+      }
+      if (calendarEvent) {
+        notificationMessage += ' • Evento calendario creato';
+      }
+      
+      toast.success('Call programmata!', {
+        description: notificationMessage,
+        action: {
+          label: 'Visualizza',
+          onClick: () => {
+            const element = document.getElementById(`call-${newCall.id}`);
+            element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      });
+      
+      loadData();
+      resetForm();
+      
+    } catch (error) {
+      console.error('Error scheduling call:', error);
+      toast.error('Errore durante la programmazione della call');
+    }
   };
 
-  const completeCall = (e: React.FormEvent) => {
+  const completeCall = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!selectedCall) {
-      alert('Errore: nessuna call selezionata');
+      toast.error('Errore: nessuna call selezionata');
       return;
     }
     
     if (!formData.durata) {
-      alert('Per favore inserisci la durata della call');
+      toast.error('Inserisci la durata della call');
       return;
     }
     
     const duration = parseInt(formData.durata);
     if (isNaN(duration) || duration <= 0) {
-      alert('La durata deve essere un numero positivo');
+      toast.error('La durata deve essere un numero positivo');
       return;
     }
     
     if (duration > 480) {
-      alert('La durata non può superare 8 ore (480 minuti)');
+      toast.error('La durata non può superare 8 ore (480 minuti)');
       return;
     }
     
     if (!formData.rating) {
-      alert('Per favore seleziona una valutazione');
+      toast.error('Seleziona una valutazione');
       return;
     }
     
@@ -123,35 +218,83 @@ export default function CallsPage() {
       const now = new Date();
       
       if (nextCallDate <= now) {
-        alert('La data della prossima call deve essere nel futuro');
+        toast.error('La data della prossima call deve essere nel futuro');
         return;
       }
     }
     
-    const updatedCall: Partial<Call> = {
-      status: 'completed',
-      dataCompletata: new Date().toISOString(),
-      durata: parseInt(formData.durata),
-      note: formData.note,
-      rating: parseInt(formData.rating),
-      nextCallDate: formData.nextCallDate || undefined
-    };
-    
-    LocalStorage.updateCall(selectedCall.id, updatedCall);
-    
-    if (formData.nextCallDate) {
-      const nextCall: Call = {
-        id: generateId(),
-        employeeId: selectedCall.employeeId,
-        dataSchedulata: formData.nextCallDate,
-        note: `Follow-up della call del ${formatDateTime(selectedCall.dataSchedulata)}`,
-        status: 'scheduled'
+    try {
+      const updatedCall: Partial<Call> = {
+        status: 'completed',
+        dataCompletata: new Date().toISOString(),
+        durata: parseInt(formData.durata),
+        note: formData.note,
+        rating: parseInt(formData.rating),
+        nextCallDate: formData.nextCallDate || undefined
       };
-      LocalStorage.addCall(nextCall);
+      
+      LocalStorage.updateCall(selectedCall.id, updatedCall);
+      
+      // Track completion
+      CallTrackingService.trackModification(selectedCall.id, 'completed', selectedCall, updatedCall);
+      
+      // Cancel pending notifications for this call (reminder/escalation)
+      NotificationService.cancelCallNotifications(selectedCall.id);
+      
+      let nextCallId: string | null = null;
+      
+      if (formData.nextCallDate) {
+        const nextCall: Call = {
+          id: generateId(),
+          employeeId: selectedCall.employeeId,
+          dataSchedulata: formData.nextCallDate,
+          note: `Follow-up della call del ${formatDateTime(selectedCall.dataSchedulata)}`,
+          status: 'scheduled'
+        };
+        LocalStorage.addCall(nextCall);
+        nextCallId = nextCall.id;
+        
+        // Create notifications for the next call
+        const employee = employees.find(emp => emp.id === selectedCall.employeeId);
+        if (employee) {
+          await NotificationService.createCallReminder(nextCall.id);
+          await NotificationService.createCallEscalation(nextCall.id);
+          
+          // Sync new call to calendar
+          await CalendarSyncService.syncCallToCalendar(nextCall, employee, 'create');
+        }
+      }
+      
+      const employee = employees.find(emp => emp.id === selectedCall.employeeId);
+      const employeeName = employee ? `${employee.nome} ${employee.cognome}` : 'Dipendente';
+      
+      // Update calendar event if call was completed
+      if (employee && selectedCall.googleCalendarEventId) {
+        try {
+          await CalendarSyncService.syncCallToCalendar(updatedCall, employee, 'update');
+        } catch (error) {
+          console.warn('Failed to update calendar event:', error);
+        }
+      }
+      
+      toast.success('Call completata!', {
+        description: `Call con ${employeeName} completata con successo${nextCallId ? ' • Prossima call programmata' : ''}`,
+        action: nextCallId ? {
+          label: 'Vedi prossima',
+          onClick: () => {
+            const element = document.getElementById(`call-${nextCallId}`);
+            element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        } : undefined
+      });
+      
+      loadData();
+      resetCompleteForm();
+      
+    } catch (error) {
+      console.error('Error completing call:', error);
+      toast.error('Errore durante il completamento della call');
     }
-    
-    loadData();
-    resetCompleteForm();
   };
 
   const resetForm = () => {
@@ -179,6 +322,169 @@ export default function CallsPage() {
     setSelectedCall(null);
   };
 
+  // Call Actions
+  const handleSuspendCall = async (call: CallWithEmployee) => {
+    try {
+      const updatedCall = { status: 'suspended' as const };
+      LocalStorage.updateCall(call.id, updatedCall);
+      
+      // Track suspension
+      CallTrackingService.trackModification(call.id, 'suspended', call, updatedCall);
+      
+      // Update calendar event to reflect suspension
+      if (call.googleCalendarEventId && GoogleCalendarService.isConnected()) {
+        try {
+          await CalendarSyncService.syncCallToCalendar(updatedCall, call.employee, 'update');
+        } catch (error) {
+          console.warn('Failed to update calendar event for suspension:', error);
+        }
+      }
+      
+      loadData();
+      
+      toast.success('Call sospesa', {
+        description: `Call con ${call.employee.nome} ${call.employee.cognome} sospesa • Calendario aggiornato`
+      });
+      setOpenDropdown(null);
+    } catch (error) {
+      toast.error('Errore durante la sospensione della call');
+    }
+  };
+
+  const handleResumeCall = async (call: CallWithEmployee) => {
+    try {
+      const updatedCall = { status: 'scheduled' as const };
+      LocalStorage.updateCall(call.id, updatedCall);
+      
+      // Track resume
+      CallTrackingService.trackModification(call.id, 'resumed', call, updatedCall);
+      
+      // Update calendar event to reflect resumption
+      if (call.googleCalendarEventId && GoogleCalendarService.isConnected()) {
+        try {
+          await CalendarSyncService.syncCallToCalendar(updatedCall, call.employee, 'update');
+        } catch (error) {
+          console.warn('Failed to update calendar event for resumption:', error);
+        }
+      }
+      
+      loadData();
+      
+      toast.success('Call riattivata', {
+        description: `Call con ${call.employee.nome} ${call.employee.cognome} riattivata • Calendario aggiornato`
+      });
+      setOpenDropdown(null);
+    } catch (error) {
+      toast.error('Errore durante la riattivazione della call');
+    }
+  };
+
+  const handleDeleteCall = async (call: CallWithEmployee) => {
+    if (!confirm(`Vuoi davvero eliminare la call con ${call.employee.nome} ${call.employee.cognome}?`)) {
+      return;
+    }
+
+    try {
+      // Track deletion before actually deleting
+      CallTrackingService.trackModification(call.id, 'deleted', call, undefined);
+      
+      // Cancel notifications
+      NotificationService.cancelCallNotifications(call.id);
+      
+      // Delete Google Calendar event if exists
+      if (call.googleCalendarEventId && GoogleCalendarService.isConnected()) {
+        try {
+          await GoogleCalendarService.deleteEvent(call.googleCalendarEventId);
+        } catch (error) {
+          console.warn('Failed to delete calendar event:', error);
+        }
+      }
+      
+      LocalStorage.deleteCall(call.id);
+      loadData();
+      
+      toast.success('Call eliminata', {
+        description: `Call con ${call.employee.nome} ${call.employee.cognome} eliminata`
+      });
+      setOpenDropdown(null);
+    } catch (error) {
+      toast.error('Errore durante l\'eliminazione della call');
+    }
+  };
+
+  const openRescheduleModal = (call: CallWithEmployee) => {
+    setSelectedCall(call);
+    setRescheduleData({
+      dataSchedulata: call.dataSchedulata,
+      note: call.note || ''
+    });
+    setShowRescheduleModal(true);
+    setOpenDropdown(null);
+  };
+
+  const handleReschedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCall) return;
+
+    const selectedDate = new Date(rescheduleData.dataSchedulata);
+    const now = new Date();
+    
+    if (selectedDate < now) {
+      toast.error('Non puoi riprogrammare una call nel passato');
+      return;
+    }
+
+    try {
+      const updatedCall = { 
+        dataSchedulata: rescheduleData.dataSchedulata,
+        note: rescheduleData.note,
+        status: 'scheduled' as const,
+        lastSyncedAt: new Date().toISOString()
+      };
+      
+      LocalStorage.updateCall(selectedCall.id, updatedCall);
+      
+      // Track rescheduling
+      CallTrackingService.trackModification(selectedCall.id, 'rescheduled', selectedCall, updatedCall);
+      
+      // Update Google Calendar event if exists
+      if (selectedCall.googleCalendarEventId && GoogleCalendarService.isConnected()) {
+        try {
+          const employee = employees.find(emp => emp.id === selectedCall.employeeId);
+          if (employee) {
+            await CalendarSyncService.syncCallToCalendar(updatedCall, employee, 'update');
+          }
+        } catch (error) {
+          console.warn('Failed to update calendar event:', error);
+        }
+      }
+      
+      // Re-create notifications for the rescheduled call
+      try {
+        await NotificationService.createCallReminder(selectedCall.id);
+        await NotificationService.createCallEscalation(selectedCall.id);
+      } catch (error) {
+        console.warn('Failed to create notifications for rescheduled call:', error);
+      }
+      
+      const callWithEmployee = calls.find(c => c.id === selectedCall.id);
+      const employeeName = callWithEmployee ? 
+        `${callWithEmployee.employee.nome} ${callWithEmployee.employee.cognome}` : 
+        'Dipendente';
+      
+      loadData();
+      setShowRescheduleModal(false);
+      setSelectedCall(null);
+      setRescheduleData({ dataSchedulata: '', note: '' });
+      
+      toast.success('Call riprogrammata', {
+        description: `Call con ${employeeName} riprogrammata`
+      });
+    } catch (error) {
+      toast.error('Errore durante la riprogrammazione della call');
+    }
+  };
+
   const openCompleteForm = (call: Call) => {
     setSelectedCall(call);
     setFormData({
@@ -189,12 +495,29 @@ export default function CallsPage() {
     setShowCompleteForm(true);
   };
 
+  const toggleCallHistory = (callId: string) => {
+    if (selectedCallHistory === callId) {
+      setSelectedCallHistory(null);
+    } else {
+      setSelectedCallHistory(callId);
+    }
+    setOpenDropdown(null);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Gestione Call</h1>
-          <p className="text-gray-600">Pianifica e traccia le call di recap con i dipendenti</p>
+          <div className="flex items-center space-x-3">
+            <p className="text-gray-600">Pianifica e traccia le call di recap con i dipendenti</p>
+            {GoogleCalendarService.isConnected() && (
+              <div className="flex items-center text-xs text-green-600">
+                <Calendar className="h-3 w-3 mr-1" />
+                Google Calendar attivo
+              </div>
+            )}
+          </div>
         </div>
         
         <Button onClick={() => setShowScheduleForm(true)}>
@@ -327,6 +650,113 @@ export default function CallsPage() {
         </Card>
       )}
 
+      {/* Reschedule Modal */}
+      {showRescheduleModal && selectedCall && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Riprogramma Call</CardTitle>
+            <CardDescription>
+              Modifica data e ora della call con {' '}
+              {calls.find(c => c.id === selectedCall.id)?.employee.nome} {' '}
+              {calls.find(c => c.id === selectedCall.id)?.employee.cognome}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleReschedule} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Nuova Data e Ora</label>
+                <Input
+                  type="datetime-local"
+                  value={rescheduleData.dataSchedulata}
+                  onChange={(e) => setRescheduleData({...rescheduleData, dataSchedulata: e.target.value})}
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-2">Note (opzionale)</label>
+                <Textarea
+                  value={rescheduleData.note}
+                  onChange={(e) => setRescheduleData({...rescheduleData, note: e.target.value})}
+                  placeholder="Motivo della riprogrammazione, nuovi argomenti da discutere..."
+                />
+              </div>
+              
+              <div className="flex gap-2">
+                <Button type="submit">Riprogramma Call</Button>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => {
+                    setShowRescheduleModal(false);
+                    setSelectedCall(null);
+                    setRescheduleData({ dataSchedulata: '', note: '' });
+                  }}
+                >
+                  Annulla
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recent Activity */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <Activity className="mr-2 h-5 w-5" />
+            Attività Recente
+          </CardTitle>
+          <CardDescription>Ultime modifiche alle call</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {(() => {
+            const recentModifications = CallTrackingService.getRecentModifications(5);
+            const stats = CallTrackingService.getModificationStats();
+            
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                  <div className="flex items-center space-x-4 text-sm">
+                    <span className="font-medium text-blue-900">
+                      {stats.todayModifications} modifiche oggi
+                    </span>
+                    <span className="text-blue-700">
+                      {stats.totalModifications} totali
+                    </span>
+                  </div>
+                </div>
+                
+                {recentModifications.length === 0 ? (
+                  <p className="text-sm text-gray-600 py-4 text-center">
+                    Nessuna attività recente
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {recentModifications.map((modification) => (
+                      <div 
+                        key={modification.id}
+                        className="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded-lg"
+                      >
+                        <div className="flex-shrink-0 w-2 h-2 bg-green-400 rounded-full mt-2"></div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-gray-900">
+                            <span className="font-medium">{modification.employeeName}</span>
+                            {' - '}
+                            {CallTrackingService.getModificationDescription(modification)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Storico Call ({calls.length})</CardTitle>
@@ -343,63 +773,181 @@ export default function CallsPage() {
           ) : (
             <div className="space-y-4">
               {calls.map((call) => (
-                <div 
-                  key={call.id}
-                  className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 ${
-                    highlightCallId === call.id ? 'bg-yellow-50 border-yellow-300' : ''
-                  }`}
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                      <User className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <h3 className="font-medium text-gray-900">
-                        {call.employee.nome} {call.employee.cognome}
-                      </h3>
-                      <div className="flex items-center space-x-4 text-sm text-gray-600">
-                        <span className="flex items-center">
-                          <Calendar className="w-4 h-4 mr-1" />
-                          {formatDateTime(call.dataSchedulata)}
-                        </span>
-                        {call.durata && (
+                <div key={call.id} className="space-y-0">
+                  <div 
+                    id={`call-${call.id}`}
+                    className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 ${
+                      highlightCallId === call.id ? 'bg-yellow-50 border-yellow-300' : ''
+                    }`}
+                  >
+                    <div className="flex items-center space-x-4">
+                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                        <User className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <h3 className="font-medium text-gray-900">
+                          {call.employee.nome} {call.employee.cognome}
+                        </h3>
+                        <div className="flex items-center space-x-4 text-sm text-gray-600">
                           <span className="flex items-center">
-                            <Clock className="w-4 h-4 mr-1" />
-                            {call.durata} min
+                            <Calendar className="w-4 h-4 mr-1" />
+                            {formatDateTime(call.dataSchedulata)}
                           </span>
-                        )}
-                        {call.rating && (
-                          <span className="flex items-center">
-                            <Star className="w-4 h-4 mr-1 fill-current text-yellow-500" />
-                            {call.rating}/5
-                          </span>
+                          {call.durata && (
+                            <span className="flex items-center">
+                              <Clock className="w-4 h-4 mr-1" />
+                              {call.durata} min
+                            </span>
+                          )}
+                          {call.rating && (
+                            <span className="flex items-center">
+                              <Star className="w-4 h-4 mr-1 fill-current text-yellow-500" />
+                              {call.rating}/5
+                            </span>
+                          )}
+                        </div>
+                        {call.note && (
+                          <p className="text-sm text-gray-600 mt-1 max-w-md truncate">
+                            {call.note}
+                          </p>
                         )}
                       </div>
-                      {call.note && (
-                        <p className="text-sm text-gray-600 mt-1 max-w-md truncate">
-                          {call.note}
-                        </p>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCallStatusColor(call.status)}`}>
+                        {call.status === 'scheduled' && 'Programmata'}
+                        {call.status === 'completed' && 'Completata'}
+                        {call.status === 'cancelled' && 'Annullata'}
+                        {call.status === 'suspended' && 'Sospesa'}
+                        {call.status === 'rescheduled' && 'Riprogrammata'}
+                      </span>
+                      
+                      {call.status === 'scheduled' && (
+                        <Button 
+                          size="sm" 
+                          onClick={() => openCompleteForm(call)}
+                        >
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          Completa
+                        </Button>
+                      )}
+
+                      {/* Dropdown Menu for Actions */}
+                      {(call.status === 'scheduled' || call.status === 'suspended' || call.status === 'rescheduled') && (
+                        <div className="relative">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setOpenDropdown(openDropdown === call.id ? null : call.id)}
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                          
+                          {openDropdown === call.id && (
+                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border">
+                              <div className="py-1">
+                                {call.status === 'scheduled' && (
+                                  <>
+                                    <button
+                                      className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+                                      onClick={() => handleSuspendCall(call)}
+                                    >
+                                      <Pause className="w-4 h-4 mr-2" />
+                                      Sospendi
+                                    </button>
+                                    <button
+                                      className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+                                      onClick={() => openRescheduleModal(call)}
+                                    >
+                                      <RotateCcw className="w-4 h-4 mr-2" />
+                                      Riprogramma
+                                    </button>
+                                  </>
+                                )}
+                                
+                                {call.status === 'suspended' && (
+                                  <button
+                                    className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+                                    onClick={() => handleResumeCall(call)}
+                                  >
+                                    <Play className="w-4 h-4 mr-2" />
+                                    Riattiva
+                                  </button>
+                                )}
+                                
+                                {(call.status === 'suspended' || call.status === 'rescheduled') && (
+                                  <button
+                                    className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+                                    onClick={() => openRescheduleModal(call)}
+                                  >
+                                    <RotateCcw className="w-4 h-4 mr-2" />
+                                    Riprogramma
+                                  </button>
+                                )}
+                                
+                                <hr className="my-1" />
+                                <button
+                                  className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
+                                  onClick={() => toggleCallHistory(call.id)}
+                                >
+                                  <History className="w-4 h-4 mr-2" />
+                                  Cronologia
+                                </button>
+                                <button
+                                  className="flex items-center px-4 py-2 text-sm text-red-700 hover:bg-red-50 w-full text-left"
+                                  onClick={() => handleDeleteCall(call)}
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Elimina
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
                   
-                  <div className="flex items-center space-x-2">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCallStatusColor(call.status)}`}>
-                      {call.status === 'scheduled' && 'Programmata'}
-                      {call.status === 'completed' && 'Completata'}
-                      {call.status === 'cancelled' && 'Annullata'}
-                    </span>
-                    
-                    {call.status === 'scheduled' && (
-                      <Button 
-                        size="sm" 
-                        onClick={() => openCompleteForm(call)}
-                      >
-                        <CheckCircle className="w-4 h-4 mr-2" />
-                        Completa
-                      </Button>
-                    )}
-                  </div>
+                  {/* Call History Timeline */}
+                  {selectedCallHistory === call.id && (
+                    <div className="p-4 bg-gray-50 rounded-lg border border-t-0 rounded-t-none">
+                      <h4 className="flex items-center text-sm font-medium text-gray-900 mb-3">
+                        <Activity className="w-4 h-4 mr-2" />
+                        Cronologia Modifiche
+                      </h4>
+                      {(() => {
+                        const modifications = CallTrackingService.getCallModifications(call.id);
+                        if (modifications.length === 0) {
+                          return (
+                            <p className="text-sm text-gray-600">Nessuna modifica registrata</p>
+                          );
+                        }
+                        return (
+                          <div className="space-y-2">
+                            {modifications.map((modification, index) => (
+                              <div 
+                                key={modification.id}
+                                className="flex items-start space-x-3 text-sm"
+                              >
+                                <div className="flex-shrink-0 w-2 h-2 bg-blue-400 rounded-full mt-2"></div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-gray-900">
+                                    {CallTrackingService.getModificationDescription(modification)}
+                                  </p>
+                                  {modification.reason && (
+                                    <p className="text-gray-600 mt-1">
+                                      Motivo: {modification.reason}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

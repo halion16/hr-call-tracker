@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Settings, Database, Download, Upload, Trash2, RefreshCw, Save, AlertTriangle } from 'lucide-react';
+import { Settings, Database, Download, Upload, Trash2, RefreshCw, Save, AlertTriangle, Bell, Calendar } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { LocalStorage } from '@/lib/storage';
 import { RealCompanyApiService } from '@/lib/real-company-api';
+import { NotificationSettingsComponent } from '@/components/notifications/notification-settings';
+import { CalendarConnectionComponent } from '@/components/calendar/calendar-connection';
 
 export default function SettingsPage() {
   const [apiSettings, setApiSettings] = useState({
@@ -28,6 +30,7 @@ export default function SettingsPage() {
   const [showDangerZone, setShowDangerZone] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [activeTab, setActiveTab] = useState<'general' | 'notifications' | 'calendar'>('general');
   const [stats, setStats] = useState({
     employees: 0,
     calls: 0,
@@ -208,6 +211,51 @@ export default function SettingsPage() {
         <h1 className="text-3xl font-bold text-gray-900">Impostazioni</h1>
         <p className="text-gray-600">Configura l'applicazione e gestisci i dati</p>
       </div>
+
+      {/* Navigation Tabs */}
+      <Card>
+        <CardContent className="p-0">
+          <div className="flex border-b">
+            <button
+              onClick={() => setActiveTab('general')}
+              className={`flex items-center px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'general' 
+                  ? 'border-blue-500 text-blue-600 bg-blue-50' 
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Settings className="w-4 h-4 mr-2" />
+              Impostazioni Generali
+            </button>
+            <button
+              onClick={() => setActiveTab('notifications')}
+              className={`flex items-center px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'notifications' 
+                  ? 'border-blue-500 text-blue-600 bg-blue-50' 
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Bell className="w-4 h-4 mr-2" />
+              Notifiche e Promemoria
+            </button>
+            <button
+              onClick={() => setActiveTab('calendar')}
+              className={`flex items-center px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'calendar' 
+                  ? 'border-blue-500 text-blue-600 bg-blue-50' 
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Calendar className="w-4 h-4 mr-2" />
+              Google Calendar
+            </button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Content based on active tab */}
+      {activeTab === 'general' && (
+        <div className="space-y-6">
 
       {/* Statistiche sistema */}
       <Card>
@@ -493,6 +541,18 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+        </div>
+      )}
+
+      {/* Notifications Tab Content */}
+      {activeTab === 'notifications' && (
+        <NotificationSettingsComponent />
+      )}
+
+      {/* Calendar Tab Content */}
+      {activeTab === 'calendar' && (
+        <CalendarConnectionComponent />
+      )}
     </div>
   );
 }

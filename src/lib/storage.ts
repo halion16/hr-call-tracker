@@ -70,6 +70,12 @@ export class LocalStorage {
     }
   }
 
+  static deleteCall(id: string): void {
+    const calls = this.getCalls();
+    const filteredCalls = calls.filter(call => call.id !== id);
+    this.setCalls(filteredCalls);
+  }
+
   static getCallsByEmployee(employeeId: string): Call[] {
     return this.getCalls().filter(call => call.employeeId === employeeId);
   }

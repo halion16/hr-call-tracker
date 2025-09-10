@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Calendar, Phone, Users, Clock, TrendingUp, AlertTriangle, Target, BarChart3, Award, Activity } from 'lucide-react';
+import { Calendar, Phone, Users, Clock, TrendingUp, AlertTriangle, Target, BarChart3, Award, Activity, Mail } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LocalStorage } from '@/lib/storage';
@@ -215,7 +215,7 @@ export default function Dashboard() {
       </div>
 
       {/* Advanced Analytics Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
         {/* Quick Stats Widget */}
         <Card>
           <CardHeader>
@@ -312,6 +312,73 @@ export default function Dashboard() {
                 </div>
               )) || <p className="text-sm text-muted-foreground">Nessun dato disponibile</p>}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Digest Status Widget */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Mail className="h-5 w-5 mr-2" />
+              Digest Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics?.digestStatus && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Stato</span>
+                  <span className={`text-sm font-semibold ${
+                    metrics.digestStatus.enabled ? 'text-green-600' : 'text-gray-500'
+                  }`}>
+                    {metrics.digestStatus.enabled ? 'Attivi' : 'Disabilitati'}
+                  </span>
+                </div>
+                
+                {metrics.digestStatus.enabled && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Frequenza</span>
+                      <span className="text-sm font-semibold capitalize">
+                        {metrics.digestStatus.frequency === 'daily' ? 'Giornaliero' : 'Settimanale'}
+                      </span>
+                    </div>
+                    
+                    {metrics.digestStatus.nextDigest && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Prossimo</span>
+                        <span className="text-sm font-semibold">
+                          {new Date(metrics.digestStatus.nextDigest).toLocaleString('it-IT', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {metrics.digestStatus.lastSent && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Ultimo invio</span>
+                        <span className="text-sm font-semibold text-green-600">
+                          {new Date(metrics.digestStatus.lastSent).toLocaleDateString('it-IT')}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+                
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full mt-3"
+                  onClick={() => router.push('/settings')}
+                >
+                  Configura
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

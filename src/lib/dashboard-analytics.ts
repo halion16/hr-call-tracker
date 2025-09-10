@@ -1,5 +1,7 @@
 import { Call, Employee } from '@/types';
 import { LocalStorage } from './storage';
+import { DigestService } from './digest-service';
+import { NotificationService } from './notification-service';
 import { isToday, isThisWeek, formatDate } from './utils';
 
 export interface DashboardMetrics {
@@ -43,6 +45,12 @@ export interface DashboardMetrics {
     message: string;
     count?: number;
   }>;
+  digestStatus: {
+    enabled: boolean;
+    frequency: 'daily' | 'weekly';
+    nextDigest?: string;
+    lastSent?: string;
+  };
 }
 
 export class DashboardAnalyticsService {
@@ -178,6 +186,17 @@ export class DashboardAnalyticsService {
       });
     }
 
+    // Digest status
+    const digestSettings = DigestService.getSettings();
+    const scheduledDigests = DigestService.getScheduledDigests();
+    const nextDigest = scheduledDigests
+      .filter(d => d.status === 'pending')
+      .sort((a, b) => new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime())[0];
+    
+    const lastSentDigest = scheduledDigests
+      .filter(d => d.status === 'sent' && d.lastSent)
+      .sort((a, b) => new Date(b.lastSent!).getTime() - new Date(a.lastSent!).getTime())[0];
+
     return {
       todayCallsProgress: {
         completed: todayCompleted.length,
@@ -200,7 +219,13 @@ export class DashboardAnalyticsService {
         totalCallsThisMonth: thisMonthCalls.length,
         avgResponseTime
       },
-      alerts: alerts.slice(0, 5)
+      alerts: alerts.slice(0, 5),
+      digestStatus: {
+        enabled: digestSettings.enabled,
+        frequency: digestSettings.frequency,
+        nextDigest: nextDigest ? nextDigest.scheduledFor.toString() : undefined,
+        lastSent: lastSentDigest?.lastSent?.toString()
+      }
     };
   }
 

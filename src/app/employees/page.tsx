@@ -8,6 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { LocalStorage } from '@/lib/storage';
 import { RealCompanyApiService } from '@/lib/real-company-api';
+import { NotificationService } from '@/lib/notification-service';
+import { GoogleCalendarService } from '@/lib/google-calendar-service';
+import { CalendarSyncService } from '@/lib/calendar-sync-service';
 import { Employee, Call } from '@/types';
 import { formatDate, generateId } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -152,10 +155,7 @@ export default function EmployeesPage() {
 
   const scheduleCall = (employee: Employee) => {
     setSelectedEmployee(employee);
-    setFormData({
-      dataSchedulata: '',
-      note: ''
-    });
+    callFormValidation.resetForm();
     setShowScheduleModal(true);
   };
 
@@ -182,9 +182,6 @@ export default function EmployeesPage() {
 
     setSchedulingCall(true);
     try {
-      // Simula un breve delay per mostrare il loading
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
       const newCall: Call = {
         id: generateId(),
         employeeId: selectedEmployee.id,
@@ -193,15 +190,64 @@ export default function EmployeesPage() {
         status: 'scheduled'
       };
 
+      // Save call to storage
       LocalStorage.addCall(newCall);
+      
+      // Create automatic notifications
+      const reminder = await NotificationService.createCallReminder(newCall.id);
+      const escalation = await NotificationService.createCallEscalation(newCall.id);
+      
+      // Create Google Calendar event if connected
+      let calendarEvent = null;
+      try {
+        if (GoogleCalendarService.isConnected()) {
+          calendarEvent = await GoogleCalendarService.createCallEvent({
+            employeeName: `${selectedEmployee.nome} ${selectedEmployee.cognome}`,
+            employeeEmail: selectedEmployee.email,
+            scheduledDate: new Date(callFormValidation.formState.dataSchedulata.value),
+            employeeData: selectedEmployee
+          });
+
+          // Update call with calendar event ID
+          if (calendarEvent) {
+            newCall.googleCalendarEventId = calendarEvent.id;
+            newCall.lastSyncedAt = new Date().toISOString();
+            LocalStorage.updateCall(newCall.id, newCall);
+          }
+        }
+      } catch (calendarError) {
+        console.warn('Calendar event creation failed:', calendarError);
+        // Non blocchiamo il processo se il calendario fallisce
+      }
       
       setShowScheduleModal(false);
       setSelectedEmployee(null);
       callFormValidation.resetForm();
       
-      toast.success('Call schedulata!', {
-        description: `Call con ${selectedEmployee.nome} ${selectedEmployee.cognome} programmata`
+      // Show success message with notification info
+      let notificationMessage = `Call con ${selectedEmployee.nome} ${selectedEmployee.cognome} programmata`;
+      if (reminder) {
+        notificationMessage += ' • Promemoria attivato';
+      }
+      if (escalation) {
+        notificationMessage += ' • Escalation programmata';
+      }
+      if (calendarEvent) {
+        notificationMessage += ' • Evento calendario creato';
+      }
+      
+      toast.success('Call programmata!', {
+        description: notificationMessage,
+        action: {
+          label: 'Vai a Call',
+          onClick: () => {
+            window.location.href = `/calls?highlight=${newCall.id}`;
+          }
+        }
       });
+    } catch (error) {
+      console.error('Error scheduling call:', error);
+      toast.error('Errore durante la programmazione della call');
     } finally {
       setSchedulingCall(false);
     }
@@ -346,12 +392,12 @@ export default function EmployeesPage() {
 
     setSchedulingCall(true);
     try {
-      const scheduledTime = new Date(bulkFormValidation.formState.dataSchedulata.value);
+      const scheduledTime = bulkFormValidation.formState.dataSchedulata.value;
       
       // Check conflitti per tutti i dipendenti selezionati
       let hasConflicts = false;
       for (const employee of selectedData) {
-        const conflicts = await checkTimeConflict(employee.id, scheduledTime);
+        const conflicts = await checkTimeConflict(employee.id, new Date(scheduledTime));
         if (conflicts.length > 0) {
           hasConflicts = true;
           break;
@@ -366,29 +412,81 @@ export default function EmployeesPage() {
         }
       }
 
+      const createdCalls: Call[] = [];
+      let calendarEventsCreated = 0;
+      let notificationsCreated = 0;
+
       // Crea le call per ogni dipendente selezionato
       for (const employee of selectedData) {
         const newCall: Call = {
           id: generateId(),
-          dipendente: employee,
+          employeeId: employee.id,
           dataSchedulata: scheduledTime,
           note: bulkFormValidation.formState.note.value,
-          stato: 'programmata',
-          dataCreazione: new Date()
+          status: 'scheduled'
         };
 
-        const existingCalls = LocalStorage.getCalls();
-        LocalStorage.saveCalls([...existingCalls, newCall]);
-      }
+        // Save call to storage
+        LocalStorage.addCall(newCall);
+        createdCalls.push(newCall);
+        
+        // Create automatic notifications
+        try {
+          const reminder = await NotificationService.createCallReminder(newCall.id);
+          const escalation = await NotificationService.createCallEscalation(newCall.id);
+          if (reminder || escalation) notificationsCreated++;
+        } catch (error) {
+          console.warn('Failed to create notifications for call:', newCall.id, error);
+        }
+        
+        // Create Google Calendar event if connected
+        try {
+          if (GoogleCalendarService.isConnected()) {
+            const calendarEvent = await GoogleCalendarService.createCallEvent({
+              employeeName: `${employee.nome} ${employee.cognome}`,
+              employeeEmail: employee.email,
+              scheduledDate: new Date(scheduledTime),
+              employeeData: employee
+            });
 
-      // Simula delay
-      await new Promise(resolve => setTimeout(resolve, 800));
+            // Update call with calendar event ID
+            if (calendarEvent) {
+              newCall.googleCalendarEventId = calendarEvent.id;
+              newCall.lastSyncedAt = new Date().toISOString();
+              LocalStorage.updateCall(newCall.id, newCall);
+              calendarEventsCreated++;
+            }
+          }
+        } catch (calendarError) {
+          console.warn('Calendar event creation failed for employee:', employee.id, calendarError);
+        }
+      }
 
       setShowBulkModal(false);
       bulkFormValidation.resetForm();
       clearSelection();
       
-      toast.success(`Call schedulata per ${selectedData.length} dipendenti!`);
+      // Show comprehensive success message
+      let successMessage = `Call schedulate per ${selectedData.length} dipendenti!`;
+      if (notificationsCreated > 0) {
+        successMessage += ` • ${notificationsCreated} notifiche attivate`;
+      }
+      if (calendarEventsCreated > 0) {
+        successMessage += ` • ${calendarEventsCreated} eventi calendario creati`;
+      }
+      
+      toast.success('Call Multiple Programmate!', {
+        description: successMessage,
+        action: {
+          label: 'Vai a Call',
+          onClick: () => {
+            window.location.href = '/calls';
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error in bulk schedule:', error);
+      toast.error('Errore durante la programmazione delle call multiple');
     } finally {
       setSchedulingCall(false);
     }
