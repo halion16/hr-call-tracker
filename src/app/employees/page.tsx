@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { RefreshCw, Phone, Calendar, Mail, User, Building2, Loader2, Users, X, Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square, Download, PhoneCall } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { RefreshCw, Phone, Calendar, Mail, User, Building2, Loader2, Users, X, Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, Square, Download, PhoneCall, Settings, HelpCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,9 @@ import { RealCompanyApiService } from '@/lib/real-company-api';
 import { Employee, Call } from '@/types';
 import { formatDate, generateId } from '@/lib/utils';
 import { toast } from 'sonner';
+import { PriorityConfigService } from '@/lib/priority-config';
+import { useKeyboardShortcuts, useModalKeyboardNavigation, useFocusManagement } from '@/hooks/useKeyboardShortcuts';
+import { useFormValidation, useTimeConflictDetection, commonValidationRules } from '@/hooks/useFormValidation';
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -36,10 +39,40 @@ export default function EmployeesPage() {
   const [selectedEmployees, setSelectedEmployees] = useState<Set<string>>(new Set());
   const [showBulkModal, setShowBulkModal] = useState(false);
   
-  const [formData, setFormData] = useState({
-    dataSchedulata: '',
-    note: ''
+  // Priority config modal
+  const [showPriorityConfig, setShowPriorityConfig] = useState(false);
+  
+  // Refs per keyboard navigation
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [selectedEmployeeIndex, setSelectedEmployeeIndex] = useState(-1);
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  
+  // Form validation per single call modal
+  const callFormValidation = useFormValidation({
+    dataSchedulata: {
+      value: '',
+      rules: [commonValidationRules.dateTime]
+    },
+    note: {
+      value: '',
+      rules: [commonValidationRules.notes]
+    }
   });
+
+  // Form validation per bulk call modal  
+  const bulkFormValidation = useFormValidation({
+    dataSchedulata: {
+      value: '',
+      rules: [commonValidationRules.dateTime]
+    },
+    note: {
+      value: '',
+      rules: [commonValidationRules.notes]
+    }
+  });
+
+  // Time conflict detection
+  const { conflicts, checkTimeConflict } = useTimeConflictDetection();
 
   useEffect(() => {
     loadEmployees();
@@ -63,6 +96,15 @@ export default function EmployeesPage() {
   };
 
   const syncEmployees = async () => {
+    // Conferma per azione distruttiva
+    const hasExistingData = employees.length > 0;
+    if (hasExistingData) {
+      const confirmMessage = `⚠️ La sincronizzazione sostituirà i dati attuali (${employees.length} dipendenti).\n\nVuoi procedere?`;
+      if (!confirm(confirmMessage)) {
+        return;
+      }
+    }
+
     setSyncing(true);
     try {
       const companyEmployees = await RealCompanyApiService.syncEmployees();
@@ -119,7 +161,24 @@ export default function EmployeesPage() {
 
   const handleScheduleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEmployee || !formData.dataSchedulata || schedulingCall) return;
+    if (!selectedEmployee || schedulingCall) return;
+
+    // Valida il form
+    if (!callFormValidation.validateForm()) {
+      toast.error('Correggi gli errori nel form prima di procedere');
+      return;
+    }
+
+    // Check per conflitti orari
+    const scheduledTime = new Date(callFormValidation.formState.dataSchedulata.value);
+    const timeConflicts = await checkTimeConflict(selectedEmployee.id, scheduledTime);
+    
+    if (timeConflicts.length > 0) {
+      const confirmMessage = `⚠️ Attenzione: ${timeConflicts.join(', ')}.\n\nVuoi comunque procedere?`;
+      if (!confirm(confirmMessage)) {
+        return;
+      }
+    }
 
     setSchedulingCall(true);
     try {
@@ -129,8 +188,8 @@ export default function EmployeesPage() {
       const newCall: Call = {
         id: generateId(),
         employeeId: selectedEmployee.id,
-        dataSchedulata: formData.dataSchedulata,
-        note: formData.note,
+        dataSchedulata: callFormValidation.formState.dataSchedulata.value,
+        note: callFormValidation.formState.note.value,
         status: 'scheduled'
       };
 
@@ -138,7 +197,7 @@ export default function EmployeesPage() {
       
       setShowScheduleModal(false);
       setSelectedEmployee(null);
-      setFormData({ dataSchedulata: '', note: '' });
+      callFormValidation.resetForm();
       
       toast.success('Call schedulata!', {
         description: `Call con ${selectedEmployee.nome} ${selectedEmployee.cognome} programmata`
@@ -149,9 +208,19 @@ export default function EmployeesPage() {
   };
 
   const closeModal = () => {
+    // Se ci sono dati non salvati, chiedi conferma
+    const hasUnsavedData = callFormValidation.formState.dataSchedulata.value || 
+                          callFormValidation.formState.note.value;
+    
+    if (hasUnsavedData && !schedulingCall) {
+      if (!confirm('Ci sono modifiche non salvate. Vuoi chiudere senza salvare?')) {
+        return;
+      }
+    }
+
     setShowScheduleModal(false);
     setSelectedEmployee(null);
-    setFormData({ dataSchedulata: '', note: '' });
+    callFormValidation.resetForm();
   };
 
   // Filtra e ordina i dipendenti
@@ -260,40 +329,85 @@ export default function EmployeesPage() {
 
   const handleBulkScheduleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSchedulingCall(true);
-
-    // Simula salvataggio per ogni dipendente selezionato
-    const selectedData = employees.filter(emp => selectedEmployees.has(emp.id));
     
-    for (const employee of selectedData) {
-      const newCall: Call = {
-        id: generateId(),
-        dipendente: employee,
-        dataSchedulata: new Date(formData.dataSchedulata),
-        note: formData.note,
-        stato: 'programmata',
-        dataCreazione: new Date()
-      };
-
-      const existingCalls = LocalStorage.getCalls();
-      LocalStorage.saveCalls([...existingCalls, newCall]);
+    // Valida il form
+    if (!bulkFormValidation.validateForm()) {
+      toast.error('Correggi gli errori nel form prima di procedere');
+      return;
     }
 
-    // Simula delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    setSchedulingCall(false);
-    setShowBulkModal(false);
-    setFormData({ dataSchedulata: '', note: '' });
-    clearSelection();
+    const selectedData = employees.filter(emp => selectedEmployees.has(emp.id));
     
-    toast.success(`Call schedulata per ${selectedData.length} dipendenti!`);
+    // Conferma per azione bulk
+    const confirmMessage = `Vuoi davvero schedulare una call per ${selectedData.length} dipendenti alla stessa ora?\n\nQuesto creerà ${selectedData.length} call simultanee.`;
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    setSchedulingCall(true);
+    try {
+      const scheduledTime = new Date(bulkFormValidation.formState.dataSchedulata.value);
+      
+      // Check conflitti per tutti i dipendenti selezionati
+      let hasConflicts = false;
+      for (const employee of selectedData) {
+        const conflicts = await checkTimeConflict(employee.id, scheduledTime);
+        if (conflicts.length > 0) {
+          hasConflicts = true;
+          break;
+        }
+      }
+
+      if (hasConflicts) {
+        const proceedMessage = '⚠️ Alcuni dipendenti hanno conflitti orari. Vuoi procedere comunque?';
+        if (!confirm(proceedMessage)) {
+          setSchedulingCall(false);
+          return;
+        }
+      }
+
+      // Crea le call per ogni dipendente selezionato
+      for (const employee of selectedData) {
+        const newCall: Call = {
+          id: generateId(),
+          dipendente: employee,
+          dataSchedulata: scheduledTime,
+          note: bulkFormValidation.formState.note.value,
+          stato: 'programmata',
+          dataCreazione: new Date()
+        };
+
+        const existingCalls = LocalStorage.getCalls();
+        LocalStorage.saveCalls([...existingCalls, newCall]);
+      }
+
+      // Simula delay
+      await new Promise(resolve => setTimeout(resolve, 800));
+
+      setShowBulkModal(false);
+      bulkFormValidation.resetForm();
+      clearSelection();
+      
+      toast.success(`Call schedulata per ${selectedData.length} dipendenti!`);
+    } finally {
+      setSchedulingCall(false);
+    }
   };
 
   const closeBulkModal = () => {
     if (!schedulingCall) {
+      // Se ci sono dati non salvati, chiedi conferma
+      const hasUnsavedData = bulkFormValidation.formState.dataSchedulata.value || 
+                            bulkFormValidation.formState.note.value;
+      
+      if (hasUnsavedData) {
+        if (!confirm('Ci sono modifiche non salvate. Vuoi chiudere senza salvare?')) {
+          return;
+        }
+      }
+
       setShowBulkModal(false);
-      setFormData({ dataSchedulata: '', note: '' });
+      bulkFormValidation.resetForm();
     }
   };
 
@@ -313,6 +427,170 @@ export default function EmployeesPage() {
     return sortDirection === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />;
   };
 
+  // Funzione per ottenere la valutazione completa della priorità di un dipendente
+  const getEmployeePriorityInfo = (employee: Employee) => {
+    return PriorityConfigService.evaluateEmployeePriority(employee);
+  };
+
+  // Funzione di compatibilità per ottenere solo il livello di priorità
+  const getEmployeePriority = (employee: Employee): 'high' | 'medium' | 'low' => {
+    return getEmployeePriorityInfo(employee).priority;
+  };
+
+  // Focus management
+  const { focusFirstInput } = useFocusManagement([showScheduleModal, showBulkModal]);
+
+  // Keyboard shortcuts globali
+  useKeyboardShortcuts([
+    {
+      key: 'f',
+      ctrl: true,
+      handler: () => {
+        searchInputRef.current?.focus();
+      },
+      description: 'Focus ricerca'
+    },
+    {
+      key: 'n',
+      ctrl: true,
+      handler: () => {
+        if (filteredAndSortedEmployees.length > 0) {
+          scheduleCall(filteredAndSortedEmployees[0]);
+        }
+      },
+      description: 'Nuova call per primo dipendente'
+    },
+    {
+      key: 's',
+      ctrl: true,
+      handler: () => {
+        syncEmployees();
+      },
+      description: 'Sincronizza dipendenti'
+    },
+    {
+      key: 'F1',
+      handler: () => {
+        setShowKeyboardHelp(true);
+      },
+      description: 'Mostra help shortcuts',
+      preventDefault: false
+    }
+  ], [filteredAndSortedEmployees]);
+
+  // Navigation per la tabella dipendenti
+  const handleEmployeeSelection = (index: number) => {
+    setSelectedEmployeeIndex(index);
+    // Highlight visualmente la riga selezionata
+    const rowElement = document.querySelector(`[data-employee-index="${index}"]`);
+    if (rowElement) {
+      rowElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  };
+
+  const handleEmployeeActivation = (index: number) => {
+    const employee = paginatedEmployees[index];
+    if (employee) {
+      scheduleCall(employee);
+    }
+  };
+
+  // Keyboard navigation per modal
+  useModalKeyboardNavigation(
+    showScheduleModal,
+    closeModal,
+    () => {
+      const form = document.querySelector('form[data-schedule-form]') as HTMLFormElement;
+      if (form) {
+        const submitButton = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+        if (submitButton && !submitButton.disabled) {
+          form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        }
+      }
+    }
+  );
+
+  useModalKeyboardNavigation(
+    showBulkModal,
+    closeBulkModal,
+    () => {
+      const form = document.querySelector('form[data-bulk-form]') as HTMLFormElement;
+      if (form) {
+        const submitButton = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+        if (submitButton && !submitButton.disabled) {
+          form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        }
+      }
+    }
+  );
+
+  useModalKeyboardNavigation(showPriorityConfig, () => setShowPriorityConfig(false));
+  useModalKeyboardNavigation(showKeyboardHelp, () => setShowKeyboardHelp(false));
+
+  // Arrow keys navigation per la lista dipendenti
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (paginatedEmployees.length === 0) return;
+
+      const activeElement = document.activeElement;
+      const isInputFocused = activeElement && (
+        activeElement.tagName === 'INPUT' ||
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.tagName === 'SELECT'
+      );
+
+      if (isInputFocused || showScheduleModal || showBulkModal || showPriorityConfig) return;
+
+      let newIndex = selectedEmployeeIndex;
+
+      switch (event.key) {
+        case 'ArrowDown':
+          event.preventDefault();
+          newIndex = selectedEmployeeIndex < paginatedEmployees.length - 1 
+            ? selectedEmployeeIndex + 1 
+            : 0;
+          break;
+        case 'ArrowUp':
+          event.preventDefault();
+          newIndex = selectedEmployeeIndex > 0 
+            ? selectedEmployeeIndex - 1 
+            : paginatedEmployees.length - 1;
+          break;
+        case 'Enter':
+          if (selectedEmployeeIndex >= 0) {
+            event.preventDefault();
+            handleEmployeeActivation(selectedEmployeeIndex);
+          }
+          break;
+        case 'Home':
+          event.preventDefault();
+          newIndex = 0;
+          break;
+        case 'End':
+          event.preventDefault();
+          newIndex = paginatedEmployees.length - 1;
+          break;
+        case ' ':
+          if (selectedEmployeeIndex >= 0) {
+            event.preventDefault();
+            const employee = paginatedEmployees[selectedEmployeeIndex];
+            toggleEmployeeSelection(employee.id);
+          }
+          break;
+        default:
+          return;
+      }
+
+      if (newIndex !== selectedEmployeeIndex && newIndex >= 0) {
+        setSelectedEmployeeIndex(newIndex);
+        handleEmployeeSelection(newIndex);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [paginatedEmployees, selectedEmployeeIndex, showScheduleModal, showBulkModal, showPriorityConfig]);
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-start">
@@ -330,9 +608,26 @@ export default function EmployeesPage() {
         
         <div className="flex gap-3">
           <Button 
+            variant="ghost" 
+            onClick={() => setShowKeyboardHelp(true)}
+            size="sm"
+            title="Scorciatoie da tastiera (F1)"
+          >
+            <HelpCircle className="h-4 w-4" />
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => setShowPriorityConfig(true)}
+            size="sm"
+          >
+            <Settings className="mr-2 h-4 w-4" />
+            Priorità
+          </Button>
+          <Button 
             variant="outline" 
             onClick={syncEmployees}
             disabled={syncing}
+            className={employees.some(emp => getEmployeePriority(emp) === 'high') ? 'pulse-notification' : ''}
           >
             {syncing ? (
               <>
@@ -343,13 +638,16 @@ export default function EmployeesPage() {
               <>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Sincronizza API Aziendale
+                {employees.some(emp => getEmployeePriority(emp) === 'high') && (
+                  <span className="ml-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                )}
               </>
             )}
           </Button>
         </div>
       </div>
 
-      <Card>
+      <Card className="smooth-hover">
         <CardHeader>
           <CardTitle>Configurazione API Aziendale</CardTitle>
           <CardDescription>
@@ -376,7 +674,7 @@ export default function EmployeesPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="smooth-hover">
         <CardHeader>
           <CardTitle>Dipendenti ({filteredAndSortedEmployees.length} di {employees.length})</CardTitle>
           <CardDescription>
@@ -407,17 +705,19 @@ export default function EmployeesPage() {
                 <div className="relative">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   <Input
-                    placeholder="Cerca per nome, cognome, email, posizione..."
+                    ref={searchInputRef}
+                    placeholder="Cerca per nome, cognome, email, posizione... (Ctrl+F)"
                     value={searchFilter}
                     onChange={(e) => setSearchFilter(e.target.value)}
                     className="pl-10"
+                    autoComplete="off"
                   />
                 </div>
               </div>
 
               {/* Barra azioni bulk */}
               {selectedEmployees.size > 0 && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 fade-in">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium text-blue-900">
@@ -502,15 +802,20 @@ export default function EmployeesPage() {
                 </div>
               ) : (
                 <div className="grid gap-4">
-                  {paginatedEmployees.map((employee) => (
+                  {paginatedEmployees.map((employee, index) => (
                 <div 
                   key={employee.id}
-                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                  data-employee-index={index}
+                  className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 smooth-hover fade-in priority-${getEmployeePriority(employee)} ${
+                    selectedEmployeeIndex === index ? 'ring-2 ring-blue-500 bg-blue-50' : ''
+                  }`}
+                  tabIndex={0}
+                  onFocus={() => setSelectedEmployeeIndex(index)}
                 >
                   <div className="flex items-center space-x-4">
                     <button
                       onClick={() => toggleEmployeeSelection(employee.id)}
-                      className="flex items-center justify-center w-5 h-5 hover:bg-gray-100 rounded"
+                      className="flex items-center justify-center w-5 h-5 hover:bg-gray-100 rounded scale-hover"
                     >
                       {selectedEmployees.has(employee.id) ? (
                         <CheckSquare className="w-5 h-5 text-blue-600" />
@@ -537,15 +842,31 @@ export default function EmployeesPage() {
                         <span>
                           Assunto: {formatDate(employee.dataAssunzione)}
                         </span>
+                        {(() => {
+                          const priorityInfo = getEmployeePriorityInfo(employee);
+                          return (
+                            <span 
+                              className="ml-2 px-2 py-0.5 rounded text-xs font-medium transition-all duration-200"
+                              style={{
+                                backgroundColor: priorityInfo.color.bg,
+                                color: priorityInfo.color.text,
+                                borderColor: priorityInfo.color.border
+                              }}
+                              title={`Regole applicate: ${priorityInfo.matchedRules.map(r => r.name).join(', ') || 'Nessuna'}`}
+                            >
+                              {priorityInfo.icon} {priorityInfo.label}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
                   
                   <div className="flex items-center space-x-2">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
                       employee.isActive 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
+                        ? 'bg-green-100 text-green-800 hover:bg-green-200' 
+                        : 'bg-red-100 text-red-800 hover:bg-red-200'
                     }`}>
                       {employee.isActive ? 'Attivo' : 'Inattivo'}
                     </span>
@@ -605,10 +926,10 @@ export default function EmployeesPage() {
 
       {/* Modale per schedulare call */}
       {showScheduleModal && selectedEmployee && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 fade-in">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 scale-hover" role="dialog" aria-labelledby="schedule-modal-title">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">
+              <h3 id="schedule-modal-title" className="text-lg font-semibold">
                 Schedula Call con {selectedEmployee.nome} {selectedEmployee.cognome}
               </h3>
               <Button variant="ghost" size="sm" onClick={closeModal}>
@@ -616,29 +937,46 @@ export default function EmployeesPage() {
               </Button>
             </div>
             
-            <form onSubmit={handleScheduleSubmit} className="space-y-4">
+            <form onSubmit={handleScheduleSubmit} className="space-y-4" data-schedule-form>
               <div>
                 <label className="block text-sm font-medium mb-2">Data e Ora</label>
                 <Input
                   type="datetime-local"
-                  value={formData.dataSchedulata}
-                  onChange={(e) => setFormData({...formData, dataSchedulata: e.target.value})}
+                  {...callFormValidation.getFieldProps('dataSchedulata')}
                   required
+                  className={callFormValidation.getFieldProps('dataSchedulata').hasError ? 'border-red-500' : ''}
                 />
+                {callFormValidation.getFieldProps('dataSchedulata').error && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {callFormValidation.getFieldProps('dataSchedulata').error}
+                  </p>
+                )}
               </div>
               
               <div>
                 <label className="block text-sm font-medium mb-2">Note (opzionale)</label>
                 <Textarea
-                  value={formData.note}
-                  onChange={(e) => setFormData({...formData, note: e.target.value})}
+                  {...callFormValidation.getFieldProps('note')}
                   placeholder="Argomenti da discutere, obiettivi della call..."
                   rows={3}
+                  className={callFormValidation.getFieldProps('note').hasError ? 'border-red-500' : ''}
                 />
+                {callFormValidation.getFieldProps('note').error && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {callFormValidation.getFieldProps('note').error}
+                  </p>
+                )}
+                <p className="text-gray-500 text-xs mt-1">
+                  {callFormValidation.formState.note.value.length}/500 caratteri
+                </p>
               </div>
               
               <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1" disabled={schedulingCall}>
+                <Button 
+                  type="submit" 
+                  className="flex-1" 
+                  disabled={schedulingCall || !callFormValidation.isValid}
+                >
                   {schedulingCall ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -662,10 +1000,10 @@ export default function EmployeesPage() {
 
       {/* Modale per azioni bulk */}
       {showBulkModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 fade-in">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 scale-hover" role="dialog" aria-labelledby="bulk-modal-title">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">
+              <h3 id="bulk-modal-title" className="text-lg font-semibold">
                 Schedula Call per {selectedEmployees.size} dipendenti
               </h3>
               <Button variant="ghost" size="sm" onClick={closeBulkModal}>
@@ -687,29 +1025,49 @@ export default function EmployeesPage() {
               </div>
             </div>
             
-            <form onSubmit={handleBulkScheduleSubmit} className="space-y-4">
+            <form onSubmit={handleBulkScheduleSubmit} className="space-y-4" data-bulk-form>
               <div>
                 <label className="block text-sm font-medium mb-2">Data e Ora</label>
                 <Input
                   type="datetime-local"
-                  value={formData.dataSchedulata}
-                  onChange={(e) => setFormData({...formData, dataSchedulata: e.target.value})}
+                  {...bulkFormValidation.getFieldProps('dataSchedulata')}
                   required
+                  className={bulkFormValidation.getFieldProps('dataSchedulata').hasError ? 'border-red-500' : ''}
                 />
+                {bulkFormValidation.getFieldProps('dataSchedulata').error && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {bulkFormValidation.getFieldProps('dataSchedulata').error}
+                  </p>
+                )}
+                <p className="text-amber-600 text-xs mt-1">
+                  ⚠️ Tutte le call verranno schedulate alla stessa ora
+                </p>
               </div>
               
               <div>
                 <label className="block text-sm font-medium mb-2">Note (opzionale)</label>
                 <Textarea
-                  value={formData.note}
-                  onChange={(e) => setFormData({...formData, note: e.target.value})}
+                  {...bulkFormValidation.getFieldProps('note')}
                   placeholder="Argomenti comuni da discutere con tutti i dipendenti..."
                   rows={3}
+                  className={bulkFormValidation.getFieldProps('note').hasError ? 'border-red-500' : ''}
                 />
+                {bulkFormValidation.getFieldProps('note').error && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {bulkFormValidation.getFieldProps('note').error}
+                  </p>
+                )}
+                <p className="text-gray-500 text-xs mt-1">
+                  {bulkFormValidation.formState.note.value.length}/500 caratteri
+                </p>
               </div>
               
               <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1" disabled={schedulingCall}>
+                <Button 
+                  type="submit" 
+                  className="flex-1" 
+                  disabled={schedulingCall || !bulkFormValidation.isValid}
+                >
                   {schedulingCall ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -727,6 +1085,204 @@ export default function EmployeesPage() {
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal configurazione priorità */}
+      {showPriorityConfig && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 fade-in">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto scale-hover">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-semibold">Configurazione Priorità Dipendenti</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowPriorityConfig(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Regole attive */}
+              <div>
+                <h4 className="text-lg font-medium mb-4">Regole Attive</h4>
+                <div className="space-y-3">
+                  {PriorityConfigService.getConfig().rules
+                    .sort((a, b) => a.order - b.order)
+                    .map(rule => (
+                    <div key={rule.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <span className="text-lg">{rule.icon}</span>
+                        <div>
+                          <div className="font-medium">{rule.name}</div>
+                          <div className="text-sm text-gray-600">{rule.description}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          rule.priority === 'high' ? 'bg-red-100 text-red-700' :
+                          rule.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {rule.priority === 'high' ? 'Alta' : rule.priority === 'medium' ? 'Media' : 'Bassa'}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant={rule.enabled ? "default" : "outline"}
+                          onClick={() => {
+                            PriorityConfigService.toggleRule(rule.id);
+                            // Force re-render per aggiornare i colori
+                            setEmployees([...employees]);
+                          }}
+                        >
+                          {rule.enabled ? 'Attiva' : 'Disattiva'}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Statistiche attuali */}
+              <div>
+                <h4 className="text-lg font-medium mb-4">Statistiche Attuali</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  {['high', 'medium', 'low'].map(priority => {
+                    const count = employees.filter(emp => getEmployeePriority(emp) === priority).length;
+                    const percentage = employees.length ? Math.round((count / employees.length) * 100) : 0;
+                    return (
+                      <div key={priority} className="text-center p-3 border rounded-lg">
+                        <div className="text-2xl font-bold">
+                          {count}
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {priority === 'high' ? '🔥 Alta' : priority === 'medium' ? '⚡ Media' : '📋 Standard'}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {percentage}%
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Azioni */}
+              <div className="flex justify-between pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const confirmMessage = '⚠️ ATTENZIONE: Ripristinare le impostazioni predefinite?\n\nQuesto cancellerà tutte le configurazioni personalizzate delle priorità.\n\nQuesta azione NON può essere annullata.';
+                    if (confirm(confirmMessage)) {
+                      PriorityConfigService.resetToDefaults();
+                      setEmployees([...employees]); // Force re-render
+                      toast.success('Impostazioni ripristinate ai valori predefiniti');
+                    }
+                  }}
+                >
+                  Ripristina Default
+                </Button>
+                <Button onClick={() => setShowPriorityConfig(false)}>
+                  Chiudi
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal help shortcuts */}
+      {showKeyboardHelp && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 fade-in">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg mx-4 scale-hover" role="dialog" aria-labelledby="help-modal-title">
+            <div className="flex justify-between items-center mb-6">
+              <h3 id="help-modal-title" className="text-xl font-semibold">⌨️ Scorciatoie da Tastiera</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowKeyboardHelp(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Shortcuts globali */}
+              <div>
+                <h4 className="font-semibold text-gray-900 mb-3">🌐 Scorciatoie Globali</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Focus ricerca</span>
+                    <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">Ctrl+F</kbd>
+                  </div>
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Sincronizza dipendenti</span>
+                    <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">Ctrl+S</kbd>
+                  </div>
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Nuova call (primo dipendente)</span>
+                    <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">Ctrl+N</kbd>
+                  </div>
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Mostra questo help</span>
+                    <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">F1</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Navigation lista */}
+              <div>
+                <h4 className="font-semibold text-gray-900 mb-3">📋 Navigazione Lista</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Seleziona dipendente precedente/successivo</span>
+                    <div className="flex gap-1">
+                      <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">↑</kbd>
+                      <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">↓</kbd>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Apri call per dipendente selezionato</span>
+                    <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">Enter</kbd>
+                  </div>
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Seleziona/deseleziona dipendente</span>
+                    <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">Space</kbd>
+                  </div>
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Primo/ultimo dipendente</span>
+                    <div className="flex gap-1">
+                      <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">Home</kbd>
+                      <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">End</kbd>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal shortcuts */}
+              <div>
+                <h4 className="font-semibold text-gray-900 mb-3">📝 Modal e Form</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Chiudi modal</span>
+                    <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">Escape</kbd>
+                  </div>
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Submit rapido</span>
+                    <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">Ctrl+Enter</kbd>
+                  </div>
+                  <div className="flex justify-between items-center p-2 rounded bg-gray-50">
+                    <span>Naviga tra campi</span>
+                    <div className="flex gap-1">
+                      <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">Tab</kbd>
+                      <kbd className="px-2 py-1 bg-gray-200 rounded text-xs font-mono">Shift+Tab</kbd>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Chiudi */}
+              <div className="flex justify-end pt-4 border-t">
+                <Button onClick={() => setShowKeyboardHelp(false)}>
+                  <span className="mr-2">Chiudi</span>
+                  <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs">Esc</kbd>
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       )}

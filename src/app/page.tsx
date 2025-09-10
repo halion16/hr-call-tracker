@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Calendar, Phone, Users, Clock } from 'lucide-react';
+import { Calendar, Phone, Users, Clock, TrendingUp, AlertTriangle, Target, BarChart3, Award, Activity } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LocalStorage } from '@/lib/storage';
 import { RealCompanyApiService } from '@/lib/real-company-api';
+import { DashboardAnalyticsService, DashboardMetrics } from '@/lib/dashboard-analytics';
 import { Call, Employee } from '@/types';
 import { formatDate, formatDateTime, isToday } from '@/lib/utils';
 
@@ -20,6 +21,7 @@ export default function Dashboard() {
   });
   const [upcomingCalls, setUpcomingCalls] = useState<(Call & { employee: Employee })[]>([]);
   const [syncing, setSyncing] = useState(false);
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
 
   useEffect(() => {
     const employees = LocalStorage.getEmployees();
@@ -51,6 +53,10 @@ export default function Dashboard() {
     }).filter(call => call.employee);
 
     setUpcomingCalls(upcomingWithEmployees);
+    
+    // Calculate dashboard metrics
+    const dashboardMetrics = DashboardAnalyticsService.calculateMetrics();
+    setMetrics(dashboardMetrics);
   }, []);
 
   const handleSyncEmployees = async () => {
@@ -94,6 +100,10 @@ export default function Dashboard() {
         todayCalls
       });
       
+      // Update metrics after sync
+      const updatedMetrics = DashboardAnalyticsService.calculateMetrics();
+      setMetrics(updatedMetrics);
+      
       alert(`Sincronizzazione completata! ${newCount} nuovi dipendenti aggiunti.`);
     } catch (error) {
       alert('Errore durante la sincronizzazione');
@@ -112,6 +122,37 @@ export default function Dashboard() {
         <h1 className="text-3xl font-bold text-gray-900">Dashboard HR</h1>
         <p className="text-gray-600">Panoramica delle call di recap con i dipendenti</p>
       </div>
+
+      {/* Alerts Section */}
+      {metrics?.alerts && metrics.alerts.length > 0 && (
+        <div className="mb-6">
+          <div className="space-y-2">
+            {metrics.alerts.map((alert) => (
+              <div
+                key={alert.id}
+                className={`p-3 rounded-lg border-l-4 ${
+                  alert.type === 'error'
+                    ? 'bg-red-50 border-red-500 text-red-700'
+                    : alert.type === 'warning'
+                    ? 'bg-yellow-50 border-yellow-500 text-yellow-700'
+                    : 'bg-blue-50 border-blue-500 text-blue-700'
+                }`}
+              >
+                <div className="flex items-center">
+                  <AlertTriangle className="h-4 w-4 mr-2" />
+                  <h4 className="font-semibold">{alert.title}</h4>
+                  {alert.count && (
+                    <span className="ml-2 text-sm bg-white/50 px-2 py-1 rounded">
+                      {alert.count}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm mt-1">{alert.message}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card>
@@ -133,6 +174,20 @@ export default function Dashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.todayCalls}</div>
             <p className="text-xs text-muted-foreground">Programmate per oggi</p>
+            {metrics?.todayCallsProgress && (
+              <div className="mt-2">
+                <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                  <span>Completate: {metrics.todayCallsProgress.completed}/{metrics.todayCallsProgress.scheduled}</span>
+                  <span>{metrics.todayCallsProgress.percentage}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-green-500 h-2 rounded-full transition-all" 
+                    style={{ width: `${metrics.todayCallsProgress.percentage}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -158,6 +213,149 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Advanced Analytics Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        {/* Quick Stats Widget */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <BarChart3 className="h-5 w-5 mr-2" />
+              Statistiche Veloci
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {metrics?.quickStats && (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Tasso Completamento</span>
+                  <span className="font-semibold">{metrics.quickStats.completionRate}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Durata Media Call</span>
+                  <span className="font-semibold">{metrics.quickStats.avgCallDuration} min</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Call Questo Mese</span>
+                  <span className="font-semibold">{metrics.quickStats.totalCallsThisMonth}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Tempo Risposta</span>
+                  <span className="font-semibold">{metrics.quickStats.avgResponseTime} gg</span>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top Employees Widget */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Award className="h-5 w-5 mr-2" />
+              Top Dipendenti
+            </CardTitle>
+            <CardDescription>Per numero di call</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {metrics?.topEmployees.slice(0, 3).map((emp, idx) => (
+                <div key={emp.employee.id} className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mr-3 ${
+                      idx === 0 ? 'bg-yellow-100 text-yellow-800' :
+                      idx === 1 ? 'bg-gray-100 text-gray-800' :
+                      'bg-orange-100 text-orange-800'
+                    }`}>
+                      {idx + 1}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">
+                        {emp.employee.nome} {emp.employee.cognome}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {emp.totalCalls} call • {emp.completionRate}%
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <Target className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                </div>
+              )) || <p className="text-sm text-muted-foreground">Nessun dato disponibile</p>}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Outcomes Trend Widget */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <TrendingUp className="h-5 w-5 mr-2" />
+              Esiti Trend
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {metrics?.outcomesTrend.slice(0, 4).map((outcome) => (
+                <div key={outcome.outcome} className="flex items-center justify-between">
+                  <span className="text-sm truncate">{outcome.outcome}</span>
+                  <div className="flex items-center">
+                    <span className="text-sm font-medium mr-2">{outcome.count}</span>
+                    <div className="w-12 bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-500 h-2 rounded-full" 
+                        style={{ width: `${outcome.percentage}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )) || <p className="text-sm text-muted-foreground">Nessun dato disponibile</p>}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Overdue Calls Alert */}
+      {metrics?.overdueCalls && metrics.overdueCalls.length > 0 && (
+        <Card className="mb-6 border-red-200">
+          <CardHeader>
+            <CardTitle className="flex items-center text-red-700">
+              <AlertTriangle className="h-5 w-5 mr-2" />
+              Call in Ritardo ({metrics.overdueCalls.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {metrics.overdueCalls.slice(0, 3).map((item) => (
+                <div key={item.call.id} className="flex items-center justify-between p-2 bg-red-50 rounded">
+                  <div>
+                    <p className="font-medium text-sm">
+                      {item.employee.nome} {item.employee.cognome}
+                    </p>
+                    <p className="text-xs text-red-600">
+                      {item.daysOverdue} giorni di ritardo
+                    </p>
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => viewCallDetails(item.call.id)}
+                    className="text-red-600 border-red-200"
+                  >
+                    Completa
+                  </Button>
+                </div>
+              ))}
+              {metrics.overdueCalls.length > 3 && (
+                <p className="text-xs text-muted-foreground text-center">
+                  +{metrics.overdueCalls.length - 3} altre call in ritardo
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>

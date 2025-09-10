@@ -41,6 +41,20 @@ export function isUpcoming(date: string | Date): boolean {
   return d > now;
 }
 
+export function isThisWeek(date: string | Date): boolean {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay()); // Start of this week (Sunday)
+  startOfWeek.setHours(0, 0, 0, 0);
+  
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 6); // End of this week (Saturday)
+  endOfWeek.setHours(23, 59, 59, 999);
+  
+  return d >= startOfWeek && d <= endOfWeek;
+}
+
 export function getCallStatusColor(status: string): string {
   switch (status) {
     case 'scheduled':
