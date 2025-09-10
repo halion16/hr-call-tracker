@@ -8,7 +8,8 @@ import {
   BarChart3, 
   Settings, 
   Phone,
-  Home
+  Home,
+  TrendingUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
@@ -17,6 +18,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
   { name: 'Call', href: '/calls', icon: Phone },
   { name: 'Dipendenti', href: '/employees', icon: Users },
+  { name: 'Priorità', href: '/priorities', icon: TrendingUp },
   { name: 'Calendario', href: '/calendar', icon: Calendar },
   { name: 'Report', href: '/reports', icon: BarChart3 },
   { name: 'Impostazioni', href: '/settings', icon: Settings },

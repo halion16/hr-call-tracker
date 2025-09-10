@@ -26,6 +26,8 @@ import { useValidation } from '@/hooks/useValidation';
 import { FieldValidationMessage, ValidationSummary } from '@/components/ui/validation-message';
 import { Autocomplete } from '@/components/ui/autocomplete';
 import { autocompleteService } from '@/lib/autocomplete-service';
+import { TemplateSelector } from '@/components/templates/template-selector';
+import { callTemplatesService, CallTemplate } from '@/lib/call-templates-service';
 
 interface CallWithEmployee extends Call {
   employee: Employee;
@@ -51,6 +53,13 @@ export default function CallsPage() {
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedCalls, setSelectedCalls] = useState<Set<string>>(new Set());
   const [showBulkActions, setShowBulkActions] = useState(false);
+  
+  // Template management states
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<CallTemplate | null>(null);
+  
+  // Client-side hydration state
+  const [isClient, setIsClient] = useState(false);
   
   // Filtri e paginazione per Storico Call
   const [callSearchFilter, setCallSearchFilter] = useState('');
@@ -112,6 +121,7 @@ export default function CallsPage() {
   })), employees);
 
   useEffect(() => {
+    setIsClient(true);
     loadData();
   }, []);
 
@@ -145,6 +155,24 @@ export default function CallsPage() {
     setCalls(callsWithEmployees.sort((a, b) => 
       new Date(b.dataSchedulata).getTime() - new Date(a.dataSchedulata).getTime()
     ));
+  };
+
+  // Handle template selection
+  const handleTemplateSelect = (template: CallTemplate) => {
+    const templateContent = callTemplatesService.generateCallContent(template.id);
+    
+    setFormData(prev => ({
+      ...prev,
+      note: templateContent.note,
+      durata: templateContent.estimatedDuration
+    }));
+    
+    setSelectedTemplate(template);
+    setShowTemplateSelector(false);
+    
+    toast.success(`Template "${template.name}" applicato con successo!`, {
+      description: `Durata stimata: ${templateContent.estimatedDuration} minuti`
+    });
   };
 
   const scheduleCall = async (e: React.FormEvent) => {
@@ -1121,7 +1149,39 @@ export default function CallsPage() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-2">Note (opzionale)</label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium">Note (opzionale)</label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowTemplateSelector(true)}
+                    className="text-xs"
+                  >
+                    📋 Usa Template
+                  </Button>
+                </div>
+                
+                {selectedTemplate && (
+                  <div className="mb-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-md text-sm">
+                    <span className="text-blue-700 dark:text-blue-300">
+                      Template applicato: <strong>{selectedTemplate.name}</strong>
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedTemplate(null);
+                        setFormData(prev => ({ ...prev, note: '' }));
+                      }}
+                      className="ml-2 h-4 w-4 p-0"
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                )}
+                
                 <Autocomplete
                   value={formData.note}
                   onChange={(value) => {
@@ -1330,10 +1390,10 @@ export default function CallsPage() {
                 <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                   <div className="flex items-center space-x-4 text-sm">
                     <span className="font-medium text-blue-900">
-                      {stats.todayModifications} modifiche oggi
+                      {isClient ? stats.todayModifications : '...'} modifiche oggi
                     </span>
                     <span className="text-blue-700">
-                      {stats.totalModifications} totali
+                      {isClient ? stats.totalModifications : '...'} totali
                     </span>
                   </div>
                 </div>
@@ -1804,6 +1864,32 @@ export default function CallsPage() {
                exportType === 'employees' ? 'Esporta Dipendenti' : 
                'Esporta Dati Completi'}
       />
+
+      {/* Template Selector Modal */}
+      {showTemplateSelector && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-4xl max-h-[80vh] overflow-auto w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold">Seleziona Template per la Chiamata</h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowTemplateSelector(false)}
+                >
+                  ✕
+                </Button>
+              </div>
+              
+              <TemplateSelector
+                onSelectTemplate={handleTemplateSelect}
+                showCreateNew={false}
+                compact={false}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

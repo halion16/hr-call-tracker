@@ -23,6 +23,7 @@ export interface Call {
   googleCalendarEventId?: string;
   lastSyncedAt?: string;
   modifications?: CallModification[];
+  rescheduledCount?: number;
 }
 
 export interface User {
