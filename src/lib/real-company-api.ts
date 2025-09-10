@@ -229,7 +229,9 @@ export class RealCompanyApiService {
       const apiUrl = `${credentials.endpoint}/${credentials.instanceCode}/api.pm?ApiName=PeopleExpressGetAll&AuthToken=${token}`;
       
       const formData = new URLSearchParams();
-      // Nessun parametro aggiuntivo necessario per ottenere tutti i dipendenti
+      // Filtra solo i dipendenti attivi
+      formData.append('PersonStatusCode', "='A'");
+      formData.append('TerminationDate', "=''");
       
       const response = await fetch(apiUrl, {
         method: 'POST',
