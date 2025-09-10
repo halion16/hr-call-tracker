@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Phone, Calendar, Clock, Star, User, CheckCircle, XCircle, Edit3, MoreVertical, Pause, Trash2, RotateCcw, Play, History, Activity } from 'lucide-react';
+import { Phone, Calendar, Clock, Star, User, CheckCircle, XCircle, Edit3, MoreVertical, Pause, Trash2, RotateCcw, Play, History, Activity, Square, CheckSquare, ChevronDown, Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import { CallTrackingService } from '@/lib/call-tracking-service';
 import { Call, Employee } from '@/types';
 import { formatDateTime, getCallStatusColor, generateId } from '@/lib/utils';
 import { toast } from 'sonner';
+import { callToasts } from '@/lib/toast';
 
 interface CallWithEmployee extends Call {
   employee: Employee;
@@ -37,6 +38,17 @@ export default function CallsPage() {
   });
   const [showHistory, setShowHistory] = useState(false);
   const [selectedCallHistory, setSelectedCallHistory] = useState<string | null>(null);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedCalls, setSelectedCalls] = useState<Set<string>>(new Set());
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  
+  // Filtri e paginazione per Storico Call
+  const [callSearchFilter, setCallSearchFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [callCurrentPage, setCallCurrentPage] = useState(1);
+  const [callItemsPerPage] = useState(5);
+  const [callSortField, setCallSortField] = useState<'employee' | 'date' | 'status' | null>(null);
+  const [callSortDirection, setCallSortDirection] = useState<'asc' | 'desc'>('desc');
   const [formData, setFormData] = useState({
     employeeId: '',
     dataSchedulata: '',
@@ -45,6 +57,8 @@ export default function CallsPage() {
     rating: '5',
     nextCallDate: ''
   });
+  const [bulkEmployeeIds, setBulkEmployeeIds] = useState<Set<string>>(new Set());
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
 
   useEffect(() => {
     loadData();
@@ -85,8 +99,13 @@ export default function CallsPage() {
   const scheduleCall = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.employeeId) {
-      toast.error('Seleziona un dipendente');
+    // Check if we're in bulk mode for multiple employees
+    const employeeIds = bulkMode && bulkEmployeeIds.size > 0 
+      ? Array.from(bulkEmployeeIds)
+      : formData.employeeId ? [formData.employeeId] : [];
+    
+    if (employeeIds.length === 0) {
+      toast.error(bulkMode ? 'Seleziona almeno un dipendente' : 'Seleziona un dipendente');
       return;
     }
     
@@ -103,84 +122,112 @@ export default function CallsPage() {
       return;
     }
     
-    // Find employee for notifications
-    const employee = employees.find(emp => emp.id === formData.employeeId);
-    if (!employee) {
-      toast.error('Dipendente non trovato');
-      return;
-    }
-    
-    const newCall: Call = {
-      id: generateId(),
-      employeeId: formData.employeeId,
-      dataSchedulata: formData.dataSchedulata,
-      note: formData.note,
-      status: 'scheduled'
-    };
-    
     try {
-      // Save call to storage
-      LocalStorage.addCall(newCall);
+      const createdCalls: Call[] = [];
+      const calendarEvents: string[] = [];
       
-      // Track creation
-      CallTrackingService.trackModification(newCall.id, 'created', undefined, newCall);
-      
-      // Create automatic notifications
-      const reminder = await NotificationService.createCallReminder(newCall.id);
-      const escalation = await NotificationService.createCallEscalation(newCall.id);
-      
-      // Create Google Calendar event if connected
-      let calendarEvent = null;
-      try {
-        if (GoogleCalendarService.isConnected()) {
-          calendarEvent = await GoogleCalendarService.createCallEvent({
-            employeeName: `${employee.nome} ${employee.cognome}`,
-            employeeEmail: employee.email,
-            scheduledDate: new Date(formData.dataSchedulata),
-            employeeData: employee
-          });
+      // Create calls for all selected employees
+      for (const employeeId of employeeIds) {
+        const employee = employees.find(emp => emp.id === employeeId);
+        if (!employee) {
+          console.warn(`Employee not found: ${employeeId}`);
+          continue;
+        }
+        
+        const newCall: Call = {
+          id: generateId(),
+          employeeId: employeeId,
+          dataSchedulata: formData.dataSchedulata,
+          note: formData.note,
+          status: 'scheduled'
+        };
+        
+        // Save call to storage
+        LocalStorage.addCall(newCall);
+        createdCalls.push(newCall);
+        
+        // Track creation
+        CallTrackingService.trackModification(newCall.id, 'created', undefined, newCall);
+        
+        // Create automatic notifications
+        try {
+          await NotificationService.createCallReminder(newCall.id);
+          await NotificationService.createCallEscalation(newCall.id);
+        } catch (notificationError) {
+          console.warn('Notification creation failed for call:', newCall.id, notificationError);
+        }
+        
+        // Create Google Calendar event if connected
+        try {
+          if (GoogleCalendarService.isConnected()) {
+            const calendarEvent = await GoogleCalendarService.createCallEvent({
+              employeeName: `${employee.nome} ${employee.cognome}`,
+              employeeEmail: employee.email,
+              scheduledDate: new Date(formData.dataSchedulata),
+              employeeData: employee
+            });
 
-          // Update call with calendar event ID
-          if (calendarEvent) {
-            newCall.googleCalendarEventId = calendarEvent.id;
-            newCall.lastSyncedAt = new Date().toISOString();
-            LocalStorage.updateCall(newCall.id, newCall);
+            // Update call with calendar event ID
+            if (calendarEvent) {
+              newCall.googleCalendarEventId = calendarEvent.id;
+              newCall.lastSyncedAt = new Date().toISOString();
+              LocalStorage.updateCall(newCall.id, newCall);
+              calendarEvents.push(employee.nome);
+            }
           }
+        } catch (calendarError) {
+          console.warn('Calendar event creation failed for employee:', employee.nome, calendarError);
+          // Non blocchiamo il processo se il calendario fallisce
         }
-      } catch (calendarError) {
-        console.warn('Calendar event creation failed:', calendarError);
-        // Non blocchiamo il processo se il calendario fallisce
       }
       
-      // Show success message with notification info
-      let notificationMessage = `Call programmata con ${employee.nome} ${employee.cognome}`;
-      if (reminder) {
-        notificationMessage += ' • Promemoria attivato';
-      }
-      if (escalation) {
-        notificationMessage += ' • Escalation programmata';
-      }
-      if (calendarEvent) {
-        notificationMessage += ' • Evento calendario creato';
-      }
+      // Show success message
+      const successMessage = employeeIds.length === 1
+        ? `Call programmata!`
+        : `${employeeIds.length} call programmate!`;
       
-      toast.success('Call programmata!', {
-        description: notificationMessage,
-        action: {
-          label: 'Visualizza',
-          onClick: () => {
-            const element = document.getElementById(`call-${newCall.id}`);
-            element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const descriptionParts = [];
+      if (calendarEvents.length > 0) {
+        descriptionParts.push(`${calendarEvents.length} eventi calendario creati`);
+      }
+      descriptionParts.push(`Promemoria ed escalation attivati`);
+      
+      // Usa toast personalizzata
+      if (bulkMode && selectedEmployees.length > 1) {
+        callToasts.bulkCallsScheduled(selectedEmployees.length, {
+          description: descriptionParts.join(' • '),
+          action: {
+            label: 'Visualizza Storico',
+            onClick: () => {
+              const element = document.getElementById('call-history-section');
+              element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
           }
-        }
-      });
+        });
+      } else {
+        const employee = selectedEmployees[0];
+        callToasts.callScheduled(
+          `${employee.nome} ${employee.cognome}`, 
+          formatDateTime(formData.dataSchedulata),
+          {
+            description: descriptionParts.join(' • '),
+            action: {
+              label: 'Visualizza',
+              onClick: () => {
+                const element = document.getElementById(`call-${createdCalls[0].id}`);
+                element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }
+          }
+        );
+      }
       
       loadData();
       resetForm();
       
     } catch (error) {
-      console.error('Error scheduling call:', error);
-      toast.error('Errore durante la programmazione della call');
+      console.error('Error scheduling calls:', error);
+      toast.error('Errore durante la programmazione delle call');
     }
   };
 
@@ -277,8 +324,8 @@ export default function CallsPage() {
         }
       }
       
-      toast.success('Call completata!', {
-        description: `Call con ${employeeName} completata con successo${nextCallId ? ' • Prossima call programmata' : ''}`,
+      callToasts.callCompleted(employeeName, {
+        description: `Call completata con successo${nextCallId ? ' • Prossima call programmata' : ''}`,
         action: nextCallId ? {
           label: 'Vedi prossima',
           onClick: () => {
@@ -306,6 +353,8 @@ export default function CallsPage() {
       rating: '5',
       nextCallDate: ''
     });
+    setBulkEmployeeIds(new Set());
+    setEmployeeSearchQuery('');
     setShowScheduleForm(false);
   };
 
@@ -504,6 +553,250 @@ export default function CallsPage() {
     setOpenDropdown(null);
   };
 
+  // Bulk Actions Functions
+  const toggleBulkMode = () => {
+    setBulkMode(!bulkMode);
+    if (bulkMode) {
+      setSelectedCalls(new Set());
+      setShowBulkActions(false);
+    }
+  };
+
+  const toggleCallSelection = (callId: string) => {
+    const newSelected = new Set(selectedCalls);
+    if (newSelected.has(callId)) {
+      newSelected.delete(callId);
+    } else {
+      newSelected.add(callId);
+    }
+    setSelectedCalls(newSelected);
+    setShowBulkActions(newSelected.size > 0);
+  };
+
+  const selectAllCalls = () => {
+    const allCallIds = calls.map(call => call.id);
+    setSelectedCalls(new Set(allCallIds));
+    setShowBulkActions(true);
+  };
+
+  const deselectAllCalls = () => {
+    setSelectedCalls(new Set());
+    setShowBulkActions(false);
+  };
+
+  const getSelectedCallsData = () => {
+    return calls.filter(call => selectedCalls.has(call.id));
+  };
+
+  // Bulk Employee Selection for New Calls
+  const toggleEmployeeSelection = (employeeId: string) => {
+    const newSelected = new Set(bulkEmployeeIds);
+    if (newSelected.has(employeeId)) {
+      newSelected.delete(employeeId);
+    } else {
+      newSelected.add(employeeId);
+    }
+    setBulkEmployeeIds(newSelected);
+  };
+
+  const selectAllEmployees = () => {
+    const allEmployeeIds = employees.map(emp => emp.id);
+    setBulkEmployeeIds(new Set(allEmployeeIds));
+  };
+
+  const deselectAllEmployees = () => {
+    setBulkEmployeeIds(new Set());
+  };
+
+  // Filter employees based on search query
+  const getFilteredEmployees = () => {
+    if (!employeeSearchQuery.trim()) return employees;
+    
+    const query = employeeSearchQuery.toLowerCase().trim();
+    return employees.filter(emp => 
+      emp.nome.toLowerCase().includes(query) ||
+      emp.cognome.toLowerCase().includes(query) ||
+      emp.posizione.toLowerCase().includes(query) ||
+      emp.dipartimento.toLowerCase().includes(query) ||
+      emp.email.toLowerCase().includes(query)
+    );
+  };
+
+  // Bulk Action Handlers
+  const bulkSuspendCalls = async () => {
+    const selectedCallsData = getSelectedCallsData();
+    const scheduledCalls = selectedCallsData.filter(call => call.status === 'scheduled');
+    
+    if (scheduledCalls.length === 0) {
+      toast.error('Nessuna call programmata selezionata');
+      return;
+    }
+
+    try {
+      const promises = scheduledCalls.map(async (call) => {
+        const updatedCall = { status: 'suspended' as const };
+        LocalStorage.updateCall(call.id, updatedCall);
+        CallTrackingService.trackModification(call.id, 'suspended', call, updatedCall);
+        
+        // Update calendar if connected
+        if (call.googleCalendarEventId && GoogleCalendarService.isConnected()) {
+          try {
+            await CalendarSyncService.syncCallToCalendar(updatedCall, call.employee, 'update');
+          } catch (error) {
+            console.warn(`Failed to update calendar for call ${call.id}:`, error);
+          }
+        }
+      });
+
+      await Promise.all(promises);
+      loadData();
+      setSelectedCalls(new Set());
+      setShowBulkActions(false);
+      
+      toast.success(`${scheduledCalls.length} call sospese`, {
+        description: 'Tutte le call selezionate sono state sospese'
+      });
+    } catch (error) {
+      toast.error('Errore durante la sospensione delle call');
+    }
+  };
+
+  const bulkResumeCalls = async () => {
+    const selectedCallsData = getSelectedCallsData();
+    const suspendedCalls = selectedCallsData.filter(call => call.status === 'suspended');
+    
+    if (suspendedCalls.length === 0) {
+      toast.error('Nessuna call sospesa selezionata');
+      return;
+    }
+
+    try {
+      const promises = suspendedCalls.map(async (call) => {
+        const updatedCall = { status: 'scheduled' as const };
+        LocalStorage.updateCall(call.id, updatedCall);
+        CallTrackingService.trackModification(call.id, 'resumed', call, updatedCall);
+        
+        // Update calendar if connected
+        if (call.googleCalendarEventId && GoogleCalendarService.isConnected()) {
+          try {
+            await CalendarSyncService.syncCallToCalendar(updatedCall, call.employee, 'update');
+          } catch (error) {
+            console.warn(`Failed to update calendar for call ${call.id}:`, error);
+          }
+        }
+      });
+
+      await Promise.all(promises);
+      loadData();
+      setSelectedCalls(new Set());
+      setShowBulkActions(false);
+      
+      toast.success(`${suspendedCalls.length} call riattivate`, {
+        description: 'Tutte le call selezionate sono state riattivate'
+      });
+    } catch (error) {
+      toast.error('Errore durante la riattivazione delle call');
+    }
+  };
+
+  const bulkDeleteCalls = async () => {
+    const selectedCallsData = getSelectedCallsData();
+    
+    if (!confirm(`Vuoi davvero eliminare ${selectedCallsData.length} call selezionate?`)) {
+      return;
+    }
+
+    try {
+      const promises = selectedCallsData.map(async (call) => {
+        // Track deletion before actually deleting
+        CallTrackingService.trackModification(call.id, 'deleted', call, undefined);
+        
+        // Cancel notifications
+        NotificationService.cancelCallNotifications(call.id);
+        
+        // Delete Google Calendar event if exists
+        if (call.googleCalendarEventId && GoogleCalendarService.isConnected()) {
+          try {
+            await GoogleCalendarService.deleteEvent(call.googleCalendarEventId);
+          } catch (error) {
+            console.warn(`Failed to delete calendar event for call ${call.id}:`, error);
+          }
+        }
+        
+        LocalStorage.deleteCall(call.id);
+      });
+
+      await Promise.all(promises);
+      loadData();
+      setSelectedCalls(new Set());
+      setShowBulkActions(false);
+      
+      toast.success(`${selectedCallsData.length} call eliminate`, {
+        description: 'Tutte le call selezionate sono state eliminate'
+      });
+    } catch (error) {
+      toast.error('Errore durante l\'eliminazione delle call');
+    }
+  };
+
+  // Funzioni per filtri e ordinamento delle call
+  const filteredCalls = calls.filter(call => {
+    const matchesSearch = callSearchFilter === '' || 
+      `${call.employee.nome} ${call.employee.cognome}`.toLowerCase().includes(callSearchFilter.toLowerCase()) ||
+      call.employee.posizione.toLowerCase().includes(callSearchFilter.toLowerCase()) ||
+      call.employee.dipartimento.toLowerCase().includes(callSearchFilter.toLowerCase()) ||
+      call.note?.toLowerCase().includes(callSearchFilter.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'all' || call.status === statusFilter;
+    
+    return matchesSearch && matchesStatus;
+  });
+
+  const sortedCalls = [...filteredCalls].sort((a, b) => {
+    if (!callSortField) return 0;
+    
+    let aValue, bValue;
+    switch (callSortField) {
+      case 'employee':
+        aValue = `${a.employee.nome} ${a.employee.cognome}`.toLowerCase();
+        bValue = `${b.employee.nome} ${b.employee.cognome}`.toLowerCase();
+        break;
+      case 'date':
+        aValue = new Date(a.dataSchedulata).getTime();
+        bValue = new Date(b.dataSchedulata).getTime();
+        break;
+      case 'status':
+        aValue = a.status;
+        bValue = b.status;
+        break;
+      default:
+        return 0;
+    }
+    
+    if (aValue < bValue) return callSortDirection === 'asc' ? -1 : 1;
+    if (aValue > bValue) return callSortDirection === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const totalCallPages = Math.ceil(sortedCalls.length / callItemsPerPage);
+  const startCallIndex = (callCurrentPage - 1) * callItemsPerPage;
+  const paginatedCalls = sortedCalls.slice(startCallIndex, startCallIndex + callItemsPerPage);
+
+  const handleCallSort = (field: 'employee' | 'date' | 'status') => {
+    if (callSortField === field) {
+      setCallSortDirection(callSortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setCallSortField(field);
+      setCallSortDirection('asc');
+    }
+    setCallCurrentPage(1);
+  };
+
+  const getSortCallIcon = (field: 'employee' | 'date' | 'status') => {
+    if (callSortField !== field) return <ArrowUpDown className="w-4 h-4" />;
+    return callSortDirection === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-start">
@@ -520,35 +813,204 @@ export default function CallsPage() {
           </div>
         </div>
         
-        <Button onClick={() => setShowScheduleForm(true)}>
-          <Phone className="mr-2 h-4 w-4" />
-          Pianifica Nuova Call
-        </Button>
+        <div className="flex space-x-2">
+          <Button 
+            variant={bulkMode ? "secondary" : "outline"}
+            onClick={toggleBulkMode}
+          >
+            {bulkMode ? <CheckSquare className="mr-2 h-4 w-4" /> : <Square className="mr-2 h-4 w-4" />}
+            {bulkMode ? 'Esci Selezione' : 'Azioni di Massa'}
+          </Button>
+          <Button onClick={() => setShowScheduleForm(true)}>
+            <Phone className="mr-2 h-4 w-4" />
+            Pianifica Nuova Call
+          </Button>
+        </div>
       </div>
+
+      {/* Bulk Actions Bar */}
+      {bulkMode && (
+        <Card className="fade-in smooth-hover">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="text-sm text-gray-600">
+                  {selectedCalls.size === 0 ? (
+                    'Seleziona le call su cui agire'
+                  ) : (
+                    `${selectedCalls.size} call selezionate`
+                  )}
+                </div>
+                {calls.length > 0 && (
+                  <div className="flex space-x-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={selectAllCalls}
+                      disabled={selectedCalls.size === calls.length}
+                    >
+                      Seleziona tutte ({calls.length})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={deselectAllCalls}
+                      disabled={selectedCalls.size === 0}
+                    >
+                      Deseleziona tutto
+                    </Button>
+                  </div>
+                )}
+              </div>
+              
+              {showBulkActions && (
+                <div className="flex space-x-2">
+                  {getSelectedCallsData().some(call => call.status === 'scheduled') && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={bulkSuspendCalls}
+                      className="text-yellow-700 hover:text-yellow-800"
+                    >
+                      <Pause className="mr-2 h-4 w-4" />
+                      Sospendi Selezionate
+                    </Button>
+                  )}
+                  
+                  {getSelectedCallsData().some(call => call.status === 'suspended') && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={bulkResumeCalls}
+                      className="text-green-700 hover:text-green-800"
+                    >
+                      <Play className="mr-2 h-4 w-4" />
+                      Riattiva Selezionate
+                    </Button>
+                  )}
+                  
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={bulkDeleteCalls}
+                    className="text-red-700 hover:text-red-800"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Elimina Selezionate
+                  </Button>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {showScheduleForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Pianifica Nuova Call</CardTitle>
-            <CardDescription>Schedula una call di recap con un dipendente</CardDescription>
+            <CardTitle>
+              {bulkMode ? 'Pianifica Call Multiple' : 'Pianifica Nuova Call'}
+            </CardTitle>
+            <CardDescription>
+              {bulkMode ? 'Schedula call con più dipendenti contemporaneamente' : 'Schedula una call di recap con un dipendente'}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={scheduleCall} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Dipendente</label>
-                <select 
-                  value={formData.employeeId}
-                  onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
-                  className="w-full p-2 border border-gray-300 rounded-md"
-                  required
-                >
-                  <option value="">Seleziona dipendente</option>
-                  {employees.map(emp => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.nome} {emp.cognome} - {emp.posizione}
-                    </option>
-                  ))}
-                </select>
+                <label className="block text-sm font-medium mb-2">
+                  {bulkMode ? 'Dipendenti' : 'Dipendente'}
+                </label>
+                
+                {bulkMode ? (
+                  <div className="space-y-3">
+                    {/* Search Filter */}
+                    <Input
+                      type="text"
+                      placeholder="Cerca dipendenti per nome, posizione, dipartimento..."
+                      value={employeeSearchQuery}
+                      onChange={(e) => setEmployeeSearchQuery(e.target.value)}
+                      className="w-full"
+                    />
+                    
+                    {/* Bulk Selection Controls */}
+                    <div className="flex items-center space-x-4 py-2">
+                      <div className="text-sm text-gray-600">
+                        {bulkEmployeeIds.size === 0 
+                          ? 'Nessun dipendente selezionato'
+                          : `${bulkEmployeeIds.size} dipendenti selezionati`
+                        }
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={selectAllEmployees}
+                          disabled={bulkEmployeeIds.size === employees.length}
+                        >
+                          Seleziona tutti
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={deselectAllEmployees}
+                          disabled={bulkEmployeeIds.size === 0}
+                        >
+                          Deseleziona tutto
+                        </Button>
+                      </div>
+                    </div>
+                    
+                    {/* Employee Selection List */}
+                    <div className="max-h-64 overflow-y-auto border rounded-md p-2 space-y-2">
+                      {getFilteredEmployees().map(emp => (
+                        <div
+                          key={emp.id} 
+                          className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                          onClick={() => toggleEmployeeSelection(emp.id)}
+                        >
+                          <div className="flex items-center justify-center w-5 h-5">
+                            {bulkEmployeeIds.has(emp.id) ? (
+                              <CheckSquare className="w-5 h-5 text-blue-600" />
+                            ) : (
+                              <Square className="w-5 h-5 text-gray-400 hover:text-gray-600" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-medium text-sm">
+                              {emp.nome} {emp.cognome}
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              {emp.posizione} • {emp.dipartimento}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {getFilteredEmployees().length === 0 && (
+                        <div className="text-center py-4 text-gray-500 text-sm">
+                          {employeeSearchQuery ? 'Nessun dipendente trovato' : 'Nessun dipendente disponibile'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <select 
+                    value={formData.employeeId}
+                    onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
+                    className="w-full p-2 border border-gray-300 rounded-md"
+                    required
+                  >
+                    <option value="">Seleziona dipendente</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.nome} {emp.cognome} - {emp.posizione}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
               
               <div>
@@ -702,7 +1164,7 @@ export default function CallsPage() {
       )}
 
       {/* Recent Activity */}
-      <Card>
+      <Card className="fade-in smooth-hover">
         <CardHeader>
           <CardTitle className="flex items-center">
             <Activity className="mr-2 h-5 w-5" />
@@ -712,7 +1174,7 @@ export default function CallsPage() {
         </CardHeader>
         <CardContent>
           {(() => {
-            const recentModifications = CallTrackingService.getRecentModifications(5);
+            const recentModifications = CallTrackingService.getRecentModifications(15);
             const stats = CallTrackingService.getModificationStats();
             
             return (
@@ -733,7 +1195,7 @@ export default function CallsPage() {
                     Nessuna attività recente
                   </p>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="max-h-80 overflow-y-auto space-y-3 pr-2">
                     {recentModifications.map((modification) => (
                       <div 
                         key={modification.id}
@@ -757,30 +1219,105 @@ export default function CallsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="call-history-section" className="fade-in smooth-hover">
         <CardHeader>
-          <CardTitle>Storico Call ({calls.length})</CardTitle>
-          <CardDescription>Tutte le call pianificate e completate</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Storico Call ({sortedCalls.length})</CardTitle>
+              <CardDescription>Tutte le call pianificate e completate</CardDescription>
+            </div>
+          </div>
+          
+          {/* Filtri e Ricerca */}
+          <div className="flex flex-col md:flex-row gap-4 mt-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Cerca per nome, posizione, dipartimento o note..."
+                  value={callSearchFilter}
+                  onChange={(e) => setCallSearchFilter(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full md:w-48 h-10 px-3 py-2 border border-input bg-background text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+            >
+              <option value="all">Tutti gli stati</option>
+              <option value="scheduled">Programmata</option>
+              <option value="completed">Completata</option>
+              <option value="cancelled">Annullata</option>
+              <option value="suspended">Sospesa</option>
+              <option value="rescheduled">Riprogrammata</option>
+            </select>
+          </div>
+
+          {/* Header di ordinamento */}
+          <div className="flex items-center gap-4 mt-4 p-2 bg-gray-50 rounded-lg">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleCallSort('employee')}
+              className="flex items-center gap-2"
+            >
+              Dipendente {getSortCallIcon('employee')}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleCallSort('date')}
+              className="flex items-center gap-2"
+            >
+              Data {getSortCallIcon('date')}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleCallSort('status')}
+              className="flex items-center gap-2"
+            >
+              Stato {getSortCallIcon('status')}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          {calls.length === 0 ? (
+          {sortedCalls.length === 0 ? (
             <div className="text-center py-8">
               <Phone className="mx-auto h-12 w-12 text-gray-400" />
               <p className="mt-2 text-sm text-gray-600">
-                Nessuna call trovata. Pianifica la tua prima call!
+                {callSearchFilter || statusFilter !== 'all' 
+                  ? 'Nessuna call corrisponde ai filtri selezionati' 
+                  : 'Nessuna call trovata. Pianifica la tua prima call!'}
               </p>
             </div>
           ) : (
             <div className="space-y-4">
-              {calls.map((call) => (
-                <div key={call.id} className="space-y-0">
+              {paginatedCalls.map((call, index) => (
+                <div key={call.id} className="space-y-0 stagger-item" style={{animationDelay: `${index * 0.05}s`}}>
                   <div 
                     id={`call-${call.id}`}
-                    className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 ${
+                    className={`flex items-center justify-between p-4 border rounded-lg smooth-hover ${
                       highlightCallId === call.id ? 'bg-yellow-50 border-yellow-300' : ''
-                    }`}
+                    } ${selectedCalls.has(call.id) ? 'ring-2 ring-blue-300 bg-blue-50' : ''}`}
                   >
                     <div className="flex items-center space-x-4">
+                      {/* Selection Checkbox */}
+                      {bulkMode && (
+                        <button
+                          onClick={() => toggleCallSelection(call.id)}
+                          className="flex items-center justify-center w-5 h-5"
+                        >
+                          {selectedCalls.has(call.id) ? (
+                            <CheckSquare className="w-5 h-5 text-blue-600" />
+                          ) : (
+                            <Square className="w-5 h-5 text-gray-400 hover:text-gray-600" />
+                          )}
+                        </button>
+                      )}
+                      
                       <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
                         <User className="w-5 h-5 text-blue-600" />
                       </div>
@@ -823,7 +1360,7 @@ export default function CallsPage() {
                         {call.status === 'rescheduled' && 'Riprogrammata'}
                       </span>
                       
-                      {call.status === 'scheduled' && (
+                      {!bulkMode && call.status === 'scheduled' && (
                         <Button 
                           size="sm" 
                           onClick={() => openCompleteForm(call)}
@@ -834,7 +1371,7 @@ export default function CallsPage() {
                       )}
 
                       {/* Dropdown Menu for Actions */}
-                      {(call.status === 'scheduled' || call.status === 'suspended' || call.status === 'rescheduled') && (
+                      {!bulkMode && (call.status === 'scheduled' || call.status === 'suspended' || call.status === 'rescheduled') && (
                         <div className="relative">
                           <Button
                             size="sm"
@@ -952,6 +1489,61 @@ export default function CallsPage() {
               ))}
             </div>
           )}
+            
+            {/* Paginazione */}
+            {totalCallPages > 1 && (
+              <div className="flex items-center justify-between mt-6">
+                <div className="text-sm text-gray-600">
+                  Mostrando {startCallIndex + 1}-{Math.min(startCallIndex + callItemsPerPage, sortedCalls.length)} di {sortedCalls.length} call
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCallCurrentPage(callCurrentPage - 1)}
+                    disabled={callCurrentPage === 1}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Precedente
+                  </Button>
+                  
+                  <div className="flex items-center space-x-1">
+                    {Array.from({ length: totalCallPages }, (_, i) => i + 1)
+                      .filter(page => 
+                        page === 1 || 
+                        page === totalCallPages || 
+                        Math.abs(page - callCurrentPage) <= 1
+                      )
+                      .map((page, index, array) => (
+                        <div key={page} className="flex items-center">
+                          {index > 0 && array[index - 1] !== page - 1 && (
+                            <span className="px-2 text-gray-400">...</span>
+                          )}
+                          <Button
+                            variant={callCurrentPage === page ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setCallCurrentPage(page)}
+                            className="w-8 h-8 p-0"
+                          >
+                            {page}
+                          </Button>
+                        </div>
+                      ))
+                    }
+                  </div>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCallCurrentPage(callCurrentPage + 1)}
+                    disabled={callCurrentPage === totalCallPages}
+                  >
+                    Successiva
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
         </CardContent>
       </Card>
     </div>

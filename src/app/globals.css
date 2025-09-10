@@ -187,3 +187,153 @@ button:disabled {
     background-position: -200% 0;
   }
 }
+
+/* Modal animations */
+.modal-overlay {
+  animation: fadeInOverlay 0.15s ease-out;
+}
+
+@keyframes fadeInOverlay {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-content {
+  animation: slideInModal 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideInModal {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* Popover animations */
+.popover-content {
+  animation: slideInPopover 0.15s ease-out;
+  transform-origin: var(--radix-popover-transform-origin);
+}
+
+@keyframes slideInPopover {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Success animation for form submissions */
+.success-flash {
+  animation: successFlash 0.6s ease-out;
+}
+
+@keyframes successFlash {
+  0% {
+    background-color: transparent;
+  }
+  30% {
+    background-color: rgba(34, 197, 94, 0.1);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Staggered list animations */
+.stagger-item {
+  animation: slideInStagger 0.4s ease-out;
+  animation-fill-mode: backwards;
+}
+
+.stagger-item:nth-child(1) { animation-delay: 0.05s; }
+.stagger-item:nth-child(2) { animation-delay: 0.1s; }
+.stagger-item:nth-child(3) { animation-delay: 0.15s; }
+.stagger-item:nth-child(4) { animation-delay: 0.2s; }
+.stagger-item:nth-child(5) { animation-delay: 0.25s; }
+
+@keyframes slideInStagger {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Enhanced focus states */
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Smooth scrolling for entire page */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Enhanced toast animations */
+[data-sonner-toast] {
+  animation: slideInToast 0.2s cubic-bezier(0.21, 1.02, 0.73, 1);
+}
+
+[data-sonner-toast][data-removed] {
+  animation: slideOutToast 0.15s ease-in;
+}
+
+@keyframes slideInToast {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutToast {
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Micro-interaction per bottoni principali */
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: width 0.3s ease, height 0.3s ease;
+}
+
+.btn-primary:active::before {
+  width: 300px;
+  height: 300px;
+}

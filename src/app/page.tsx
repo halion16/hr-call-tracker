@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Calendar, Phone, Users, Clock, TrendingUp, AlertTriangle, Target, BarChart3, Award, Activity, Mail } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { UpcomingCallItem } from '@/components/UpcomingCallItem';
 import { LocalStorage } from '@/lib/storage';
 import { RealCompanyApiService } from '@/lib/real-company-api';
 import { DashboardAnalyticsService, DashboardMetrics } from '@/lib/dashboard-analytics';
@@ -436,28 +437,13 @@ export default function Dashboard() {
             {upcomingCalls.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nessuna call programmata</p>
             ) : (
-              <div className="space-y-4">
+              <div className="max-h-96 overflow-y-auto space-y-3 pr-2">
                 {upcomingCalls.map((call) => (
-                  <div key={call.id} className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">
-                        {call.employee.nome} {call.employee.cognome}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {call.employee.posizione} - {call.employee.dipartimento}
-                      </p>
-                      <p className="text-sm text-blue-600">
-                        {formatDateTime(call.dataSchedulata)}
-                      </p>
-                    </div>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => viewCallDetails(call.id)}
-                    >
-                      Dettagli
-                    </Button>
-                  </div>
+                  <UpcomingCallItem 
+                    key={call.id} 
+                    call={call} 
+                    onViewDetails={viewCallDetails}
+                  />
                 ))}
               </div>
             )}

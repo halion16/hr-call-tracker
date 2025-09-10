@@ -71,3 +71,56 @@ export function getCallStatusColor(status: string): string {
       return 'bg-gray-100 text-gray-800';
   }
 }
+
+export function getTimeUntilCall(callDate: string | Date): {
+  total: number;
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  isOverdue: boolean;
+  formattedString: string;
+} {
+  const now = new Date().getTime();
+  const callTime = new Date(callDate).getTime();
+  const total = callTime - now;
+  
+  const isOverdue = total < 0;
+  const absoluteTotal = Math.abs(total);
+  
+  const days = Math.floor(absoluteTotal / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((absoluteTotal % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((absoluteTotal % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((absoluteTotal % (1000 * 60)) / 1000);
+  
+  let formattedString = '';
+  if (isOverdue) {
+    if (days > 0) {
+      formattedString = `In ritardo di ${days} giorni ${hours}h`;
+    } else if (hours > 0) {
+      formattedString = `In ritardo di ${hours}h ${minutes}m`;
+    } else {
+      formattedString = `In ritardo di ${minutes}m`;
+    }
+  } else {
+    if (days > 0) {
+      formattedString = `Tra ${days} giorni ${hours}h`;
+    } else if (hours > 0) {
+      formattedString = `Tra ${hours}h ${minutes}m`;
+    } else if (minutes > 0) {
+      formattedString = `Tra ${minutes} minuti`;
+    } else {
+      formattedString = 'Ora!';
+    }
+  }
+  
+  return {
+    total,
+    days,
+    hours,
+    minutes,
+    seconds,
+    isOverdue,
+    formattedString
+  };
+}
