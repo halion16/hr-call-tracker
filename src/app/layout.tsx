@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { NotificationProvider } from "@/components/notifications/notification-provider";
 import { CalendarSyncProvider } from "@/components/providers/calendar-sync-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { WorkflowProvider } from "@/components/providers/workflow-provider";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -32,20 +33,22 @@ export default function RootLayout({
         <ThemeProvider>
           <NotificationProvider>
             <CalendarSyncProvider>
-              <div className="flex h-screen bg-background">
-                <Sidebar />
-                <main className="flex-1 overflow-y-auto bg-background">
-                  <div className="p-6">
-                    {children}
-                  </div>
-                </main>
-              </div>
-              <Toaster 
-                position="top-right" 
-                richColors 
-                closeButton 
-                duration={4000}
-              />
+              <WorkflowProvider>
+                <div className="flex h-screen bg-background">
+                  <Sidebar />
+                  <main className="flex-1 overflow-y-auto bg-background">
+                    <div className="p-6">
+                      {children}
+                    </div>
+                  </main>
+                </div>
+                <Toaster 
+                  position="top-right" 
+                  richColors 
+                  closeButton 
+                  duration={4000}
+                />
+              </WorkflowProvider>
             </CalendarSyncProvider>
           </NotificationProvider>
         </ThemeProvider>

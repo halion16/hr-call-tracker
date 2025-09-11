@@ -11,7 +11,8 @@ import {
   Phone,
   Home,
   TrendingUp,
-  Bell
+  Bell,
+  Brain
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
@@ -21,6 +22,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
   { name: 'Call', href: '/calls', icon: Phone },
   { name: 'Dipendenti', href: '/employees', icon: Users },
+  { name: 'Workflow AI', href: '/workflow', icon: Brain, badge: 'NEW' },
   { name: 'Priorità', href: '/priorities', icon: TrendingUp },
   { name: 'Calendario', href: '/calendar', icon: Calendar },
   { name: 'Report', href: '/reports', icon: BarChart3 },
@@ -64,7 +66,12 @@ export function Sidebar() {
                 )}
               >
                 <Icon className="w-5 h-5 mr-3" />
-                {item.name}
+                <span className="flex-1">{item.name}</span>
+                {item.badge && (
+                  <span className="px-2 py-1 text-xs bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-full font-medium">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}

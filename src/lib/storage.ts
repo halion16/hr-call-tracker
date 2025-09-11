@@ -18,6 +18,10 @@ export class LocalStorage {
     localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
   }
 
+  static saveEmployees(employees: Employee[]): void {
+    return this.setEmployees(employees);
+  }
+
   static getCalls(): Call[] {
     if (typeof window === 'undefined') return [];
     const data = localStorage.getItem(STORAGE_KEYS.CALLS);
@@ -90,6 +94,16 @@ export class LocalStorage {
 
   static getCompletedCalls(): Call[] {
     return this.getCalls().filter(call => call.status === 'completed');
+  }
+
+  static addAuditLog(entry: any): void {
+    // Placeholder implementation for audit logging
+    console.log('Audit log entry:', entry);
+  }
+
+  static getCallTemplates(): any[] {
+    // Placeholder implementation for call templates
+    return [];
   }
 
   static clearAll(): void {
