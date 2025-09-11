@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { LocalStorage } from '@/lib/storage';
 import { RealCompanyApiService } from '@/lib/real-company-api';
 import { NotificationSettingsComponent } from '@/components/notifications/notification-settings';
+import { NotificationSettingsPanel } from '@/components/notifications/notification-settings-panel';
 import { CalendarConnectionComponent } from '@/components/calendar/calendar-connection';
 
 export default function SettingsPage() {
@@ -467,7 +468,7 @@ export default function SettingsPage() {
                 id="import-file"
               />
               <Button variant="outline" asChild>
-                <label htmlFor="import-file" className="cursor-pointer">
+                <label htmlFor="import-file">
                   <Upload className="mr-2 h-4 w-4" />
                   Importa Dati
                 </label>
@@ -546,7 +547,7 @@ export default function SettingsPage() {
 
       {/* Notifications Tab Content */}
       {activeTab === 'notifications' && (
-        <NotificationSettingsComponent />
+        <NotificationSettingsPanel />
       )}
 
       {/* Calendar Tab Content */}

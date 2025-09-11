@@ -67,7 +67,7 @@ export class ValidationEngine {
       category: 'format'
     });
 
-    // Call notes validation
+    // Call notes validation - More permissive
     this.addRule('call', {
       id: 'notes-quality',
       name: 'Notes Quality',
@@ -75,9 +75,9 @@ export class ValidationEngine {
       validator: (value: string) => {
         if (!value) return true; // Optional field
         const words = value.trim().split(/\s+/).length;
-        return words >= 5; // At least 5 words for meaningful notes
+        return words >= 2; // At least 2 words - more permissive
       },
-      message: 'Le note dovrebbero contenere almeno 5 parole per essere significative',
+      message: 'Le note dovrebbero contenere almeno 2 parole per essere significative',
       severity: 'info',
       category: 'business'
     });
@@ -100,14 +100,15 @@ export class ValidationEngine {
     this.addRule('call', {
       id: 'future-date',
       name: 'Future Date',
-      description: 'Validates scheduled dates are in the future',
+      description: 'Validates scheduled dates are not in the past',
       validator: (value: string, context?: { allowPast?: boolean }) => {
         if (!value) return true;
         const date = new Date(value);
         const now = new Date();
-        return context?.allowPast || date > now;
+        // Allow future dates and times, including later times today
+        return context?.allowPast || date >= now;
       },
-      message: 'La data deve essere nel futuro',
+      message: 'La data non può essere nel passato',
       severity: 'error',
       category: 'business'
     });
@@ -122,11 +123,11 @@ export class ValidationEngine {
         const date = new Date(value);
         const hour = date.getHours();
         const day = date.getDay();
-        // Monday-Friday, 8 AM - 6 PM
-        return day >= 1 && day <= 5 && hour >= 8 && hour < 18;
+        // Monday-Friday, 8 AM - 8 PM (more flexible)
+        return day >= 1 && day <= 5 && hour >= 8 && hour < 20;
       },
-      message: 'Le call dovrebbero essere programmate durante l\'orario lavorativo (Lun-Ven, 8:00-18:00)',
-      severity: 'warning',
+      message: 'Le call dovrebbero essere programmate durante l\'orario lavorativo (Lun-Ven, 8:00-20:00)',
+      severity: 'info',
       category: 'business'
     });
 

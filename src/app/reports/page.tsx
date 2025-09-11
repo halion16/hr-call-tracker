@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BarChart3, TrendingUp, Users, Calendar, Star, Clock, Download } from 'lucide-react';
+import { BarChart3, TrendingUp, Users, Calendar, Star, Clock, Download, Filter, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LocalStorage } from '@/lib/storage';
@@ -41,10 +41,23 @@ export default function ReportsPage() {
     totalDuration: 0,
     avgDuration: 0
   });
+  
+  // Filtri avanzati
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
+  const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
+  const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    const filteredCalls = getFilteredCalls();
+    calculateStats(filteredCalls, employees);
+  }, [calls, employees, dateFrom, dateTo, selectedDepartment, selectedEmployee, selectedStatus]);
 
   const loadData = () => {
     const loadedEmployees = LocalStorage.getEmployees();
@@ -60,7 +73,62 @@ export default function ReportsPage() {
     setEmployees(loadedEmployees);
     setCalls(callsWithEmployees);
     
-    calculateStats(callsWithEmployees, loadedEmployees);
+    // Imposta date di default (ultimi 3 mesi)
+    if (!dateFrom) {
+      const threeMonthsAgo = new Date();
+      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+      setDateFrom(threeMonthsAgo.toISOString().split('T')[0]);
+    }
+    if (!dateTo) {
+      setDateTo(new Date().toISOString().split('T')[0]);
+    }
+  };
+
+  const getFilteredCalls = () => {
+    return calls.filter(call => {
+      // Filtro per periodo
+      if (dateFrom) {
+        const callDate = new Date(call.dataSchedulata);
+        const fromDate = new Date(dateFrom);
+        if (callDate < fromDate) return false;
+      }
+      
+      if (dateTo) {
+        const callDate = new Date(call.dataSchedulata);
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999); // Fine giornata
+        if (callDate > toDate) return false;
+      }
+      
+      // Filtro per dipartimento
+      if (selectedDepartment !== 'all' && call.employee.dipartimento !== selectedDepartment) {
+        return false;
+      }
+      
+      // Filtro per dipendente
+      if (selectedEmployee !== 'all' && call.employeeId !== selectedEmployee) {
+        return false;
+      }
+      
+      // Filtro per stato
+      if (selectedStatus !== 'all' && call.status !== selectedStatus) {
+        return false;
+      }
+      
+      return true;
+    });
+  };
+
+  const getUniqueDepartments = () => {
+    return [...new Set(employees.map(emp => emp.dipartimento))].sort();
+  };
+
+  const resetFilters = () => {
+    setDateFrom('');
+    setDateTo('');
+    setSelectedDepartment('all');
+    setSelectedEmployee('all');
+    setSelectedStatus('all');
   };
 
   const calculateStats = (callsData: CallWithEmployee[], employeesData: Employee[]) => {
@@ -174,11 +242,114 @@ export default function ReportsPage() {
           <p className="text-gray-600">Analisi delle performance e statistiche delle call HR</p>
         </div>
         
-        <Button onClick={exportData}>
-          <Download className="mr-2 h-4 w-4" />
-          Esporta Report
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowFilters(!showFilters)}>
+            <Filter className="mr-2 h-4 w-4" />
+            {showFilters ? 'Nascondi Filtri' : 'Mostra Filtri'}
+          </Button>
+          <Button onClick={exportData}>
+            <Download className="mr-2 h-4 w-4" />
+            Esporta Report
+          </Button>
+        </div>
       </div>
+
+      {/* Pannello Filtri */}
+      {showFilters && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="h-5 w-5" />
+              Filtri Avanzati
+            </CardTitle>
+            <CardDescription>
+              Filtra i dati per ottenere report più specifici
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              {/* Periodo */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Da</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">A</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm"
+                />
+              </div>
+              
+              {/* Dipartimento */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Dipartimento</label>
+                <select
+                  value={selectedDepartment}
+                  onChange={(e) => setSelectedDepartment(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm"
+                >
+                  <option value="all">Tutti i dipartimenti</option>
+                  {getUniqueDepartments().map(dept => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
+              </div>
+              
+              {/* Dipendente */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Dipendente</label>
+                <select
+                  value={selectedEmployee}
+                  onChange={(e) => setSelectedEmployee(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm"
+                >
+                  <option value="all">Tutti i dipendenti</option>
+                  {employees
+                    .filter(emp => selectedDepartment === 'all' || emp.dipartimento === selectedDepartment)
+                    .map(emp => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.nome} {emp.cognome}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              
+              {/* Stato */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Stato</label>
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm"
+                >
+                  <option value="all">Tutti gli stati</option>
+                  <option value="scheduled">Programmate</option>
+                  <option value="completed">Completate</option>
+                  <option value="cancelled">Annullate</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
+              <div className="text-sm text-gray-600">
+                Showing {getFilteredCalls().length} of {calls.length} calls
+              </div>
+              <Button variant="outline" size="sm" onClick={resetFilters}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Reset Filtri
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Statistiche generali */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
@@ -414,21 +585,31 @@ export default function ReportsPage() {
         </Card>
       </div>
 
-      {/* Call recenti */}
+      {/* Call filtrate */}
       <Card>
         <CardHeader>
-          <CardTitle>Call Recenti</CardTitle>
-          <CardDescription>Ultime call completate</CardDescription>
+          <CardTitle>Call nel Periodo Selezionato</CardTitle>
+          <CardDescription>
+            {getFilteredCalls().length > 0 
+              ? `${getFilteredCalls().length} call trovate${dateFrom && dateTo ? ` dal ${new Date(dateFrom).toLocaleDateString('it-IT')} al ${new Date(dateTo).toLocaleDateString('it-IT')}` : ''}`
+              : 'Nessuna call nel periodo selezionato'
+            }
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          {calls.filter(call => call.status === 'completed').length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nessuna call completata</p>
+          {getFilteredCalls().length === 0 ? (
+            <div className="text-center py-8">
+              <Calendar className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+              <p className="text-sm text-muted-foreground">Nessuna call trovata con i filtri applicati</p>
+              <Button variant="outline" size="sm" className="mt-2" onClick={resetFilters}>
+                Reset Filtri
+              </Button>
+            </div>
           ) : (
-            <div className="space-y-3">
-              {calls
-                .filter(call => call.status === 'completed')
-                .sort((a, b) => new Date(b.dataCompletata!).getTime() - new Date(a.dataCompletata!).getTime())
-                .slice(0, 10)
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {getFilteredCalls()
+                .sort((a, b) => new Date(b.dataSchedulata).getTime() - new Date(a.dataSchedulata).getTime())
+                .slice(0, 20)
                 .map(call => (
                   <div key={call.id} className="flex items-center justify-between p-3 border rounded-lg">
                     <div>
@@ -436,18 +617,43 @@ export default function ReportsPage() {
                         {call.employee.nome} {call.employee.cognome}
                       </p>
                       <p className="text-sm text-gray-600">
-                        {call.employee.dipartimento} • {formatDate(call.dataCompletata!)}
+                        {call.employee.dipartimento} • {formatDate(call.dataSchedulata)}
                       </p>
+                      {call.note && (
+                        <p className="text-xs text-gray-500 italic mt-1 truncate max-w-md">
+                          {call.note}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
-                      <div className="flex items-center text-sm">
-                        <Star className="w-4 h-4 mr-1 text-yellow-500 fill-current" />
-                        {call.rating}/5
+                      <div className={`px-2 py-1 rounded text-xs font-medium mb-1 ${
+                        call.status === 'scheduled' 
+                          ? 'bg-blue-100 text-blue-800' 
+                          : call.status === 'completed'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {call.status === 'scheduled' ? 'Programmata' : 
+                         call.status === 'completed' ? 'Completata' : 'Annullata'}
                       </div>
-                      <p className="text-xs text-gray-600">{call.durata} min</p>
+                      {call.status === 'completed' && call.rating && (
+                        <div className="flex items-center text-sm">
+                          <Star className="w-4 h-4 mr-1 text-yellow-500 fill-current" />
+                          {call.rating}/5
+                        </div>
+                      )}
+                      {call.durata && (
+                        <p className="text-xs text-gray-600">{call.durata} min</p>
+                      )}
                     </div>
                   </div>
                 ))}
+              
+              {getFilteredCalls().length > 20 && (
+                <div className="text-center py-2 text-sm text-gray-500">
+                  Showing first 20 of {getFilteredCalls().length} calls
+                </div>
+              )}
             </div>
           )}
         </CardContent>

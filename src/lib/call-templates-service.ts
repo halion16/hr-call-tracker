@@ -429,22 +429,32 @@ export class CallTemplatesService {
 
   // Initialize default templates if not exists
   private initializeDefaultTemplates(): void {
-    const existing = this.getAllTemplates();
-    if (existing.length === 0) {
-      const now = new Date().toISOString();
-      const templates = this.defaultTemplates.map(template => ({
-        ...template,
-        id: generateId(),
-        usageCount: 0,
-        createdAt: now,
-        updatedAt: now,
-        agenda: template.agenda.map(item => ({
-          ...item,
-          id: item.id || generateId()
-        }))
-      }));
-      this.saveTemplates(templates);
+    // Directly check localStorage without calling getAllTemplates() to avoid infinite loop
+    if (typeof window === 'undefined') return;
+    
+    try {
+      const stored = localStorage.getItem(this.storageKey);
+      if (stored && JSON.parse(stored).length > 0) {
+        return; // Templates already exist
+      }
+    } catch (error) {
+      // Continue with initialization if parsing fails
     }
+    
+    // Create default templates
+    const now = new Date().toISOString();
+    const templates = this.defaultTemplates.map(template => ({
+      ...template,
+      id: generateId(),
+      usageCount: 0,
+      createdAt: now,
+      updatedAt: now,
+      agenda: template.agenda.map(item => ({
+        ...item,
+        id: item.id || generateId()
+      }))
+    }));
+    this.saveTemplates(templates);
   }
 
   // Get all templates
@@ -460,8 +470,20 @@ export class CallTemplatesService {
       console.warn('Failed to load call templates');
     }
     
+    // Initialize default templates if none exist
     this.initializeDefaultTemplates();
-    return this.getAllTemplates();
+    
+    // Try to read again after initialization
+    try {
+      const stored = localStorage.getItem(this.storageKey);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (error) {
+      console.warn('Failed to load call templates after initialization');
+    }
+    
+    return [];
   }
 
   // Get templates by category

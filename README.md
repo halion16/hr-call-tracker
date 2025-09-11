@@ -5,10 +5,14 @@ Sistema di tracciamento call HR per gestire i recap periodici con i dipendenti.
 ## 🚀 Caratteristiche Principali
 
 ### ✅ Già Implementato
-- **Dashboard Interattiva** - Panoramica completa con statistiche in tempo reale
+- **Dashboard Interattiva** - Panoramica completa con statistiche in tempo reale e KPI avanzati
 - **Gestione Dipendenti** - Sincronizzazione automatica da API aziendale
 - **Pianificazione Call** - Schedulazione semplice e intuitiva
 - **Tracciamento Completo** - Registrazione durata, note e valutazioni
+- **Calendario Avanzato** - Vista mensile, settimanale e giornaliera con filtri
+- **Reportistica Completa** - Grafici interattivi, filtri temporali e export dati
+- **Notifiche Email/SMS** - Sistema completo per promemoria e avvisi automatici
+- **Centro Notifiche** - Gestione notifiche interne con badge e contatori
 - **Persistenza Locale** - Tutti i dati salvati in localStorage per testing
 - **Mock API** - Simulazione integrazione con sistema aziendale
 
@@ -44,12 +48,19 @@ Sistema di tracciamento call HR per gestire i recap periodici con i dipendenti.
    npm run dev
    ```
 
-2. **Accedi** a http://localhost:3000
+2. **Accedi** a http://localhost:3001
 
 3. **Prima configurazione**:
    - Vai su "Dipendenti"
    - Clicca "Sincronizza API Aziendale" per importare i dipendenti mock
+   - Vai su "Impostazioni" → "Notifiche" per configurare email/SMS
    - Inizia a schedulare le tue prime call!
+
+4. **Configurazione Email/SMS** (Opzionale):
+   - Copia `.env.local.example` in `.env.local`  
+   - Configura credenziali SMTP (Gmail/Outlook) per email
+   - Configura Twilio per SMS
+   - Testa le notifiche dal pannello impostazioni
 
 ## 📱 Guida Rapida
 
@@ -118,13 +129,14 @@ version: 'v1'
 
 ## 🎯 Prossimi Sviluppi
 
+- [x] **Calendario Visuale** con eventi ✅ **COMPLETATO**
+- [x] **Reportistica Avanzata** ✅ **COMPLETATO**
+- [x] **Integrazione Email/SMS** per promemoria ✅ **COMPLETATO**
+- [x] **Esportazione Dati** (JSON) ✅ **COMPLETATO**
 - [ ] **Database Persistente** (PostgreSQL + Prisma)
 - [ ] **Autenticazione Utenti**
-- [ ] **Calendario Visuale** con eventi
-- [ ] **Reportistica Avanzata**
-- [ ] **Integrazione Email/SMS** per promemoria
-- [ ] **Esportazione Dati** (CSV, PDF)
 - [ ] **API REST** per integrazioni esterne
+- [ ] **Esportazione PDF/CSV Avanzata**
 
 ## 🔄 Migrazione a Database
 

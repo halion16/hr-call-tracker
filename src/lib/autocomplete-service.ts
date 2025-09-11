@@ -92,12 +92,21 @@ export class AutocompleteService {
 
   // Get suggestions for a field
   getSuggestions(field: string): AutocompleteSuggestion[] {
+    if (typeof window === 'undefined') {
+      return []; // Return empty array on server-side
+    }
+    
     this.ensureInitialized();
     return this.suggestions.get(field) || [];
   }
 
   // Generate call notes suggestions based on historical data
   getCallNotesSuggestions(): AutocompleteSuggestion[] {
+    if (typeof window === 'undefined') {
+      // Return basic suggestions on server-side
+      return this.getBasicCallNotesSuggestions();
+    }
+    
     this.ensureInitialized();
     const calls = LocalStorage.getCalls();
     const noteFrequency = new Map<string, number>();
@@ -158,6 +167,10 @@ export class AutocompleteService {
 
   // Generate employee selection suggestions
   getEmployeeSuggestions(searchTerm?: string): AutocompleteSuggestion[] {
+    if (typeof window === 'undefined') {
+      return []; // Return empty array on server-side
+    }
+    
     this.ensureInitialized();
     const employees = LocalStorage.getEmployees();
     const calls = LocalStorage.getCalls();
@@ -290,6 +303,28 @@ export class AutocompleteService {
       this.suggestions.clear();
     }
     this.saveSuggestions();
+  }
+
+  // Get basic call notes suggestions for SSR
+  private getBasicCallNotesSuggestions(): AutocompleteSuggestion[] {
+    const commonSuggestions = [
+      { value: 'Discussione su obiettivi trimestrali', category: 'Obiettivi' },
+      { value: 'Review delle performance', category: 'Performance' },
+      { value: 'Feedback su progetto attuale', category: 'Progetti' },
+      { value: 'Pianificazione sviluppo professionale', category: 'Sviluppo' },
+      { value: 'Discussione su work-life balance', category: 'Benessere' },
+      { value: 'Aggiornamento su formazione', category: 'Formazione' },
+      { value: 'Revisione mansioni e responsabilità', category: 'Ruolo' },
+      { value: 'Follow-up su feedback precedente', category: 'Follow-up' },
+      { value: 'Discussione su opportunità di crescita', category: 'Crescita' },
+      { value: 'Allineamento su priorità aziendali', category: 'Azienda' }
+    ];
+
+    return commonSuggestions.map(s => ({ 
+      ...s, 
+      label: s.value, 
+      frequency: 1 
+    }));
   }
 
   // Get usage statistics

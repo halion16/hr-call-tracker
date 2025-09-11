@@ -18,11 +18,20 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 
 export function useCallNotifications(calls: Call[], employees: Employee[]) {
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
-  const [notificationService] = useState(() => BrowserNotificationService.getInstance());
+  const [notificationService] = useState(() => {
+    // Only initialize on client-side
+    return typeof window !== 'undefined' ? BrowserNotificationService.getInstance() : null;
+  });
   const [hasPermission, setHasPermission] = useState(false);
+  const [isClient, setIsClient] = useState(false);
 
-  // Load settings from localStorage
+  // Client-side initialization
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    setIsClient(true);
+    
+    // Load settings from localStorage
     const stored = localStorage.getItem('hr-call-notification-settings');
     if (stored) {
       try {
@@ -38,20 +47,25 @@ export function useCallNotifications(calls: Call[], employees: Employee[]) {
   const updateSettings = useCallback((newSettings: Partial<NotificationSettings>) => {
     const updated = { ...settings, ...newSettings };
     setSettings(updated);
-    localStorage.setItem('hr-call-notification-settings', JSON.stringify(updated));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('hr-call-notification-settings', JSON.stringify(updated));
+    }
   }, [settings]);
 
   // Request notification permission
   const requestPermission = useCallback(async () => {
+    if (!notificationService || !isClient) return false;
+    
     const granted = await notificationService.requestPermission();
     setHasPermission(granted);
     return granted;
-  }, [notificationService]);
+  }, [notificationService, isClient]);
 
   // Check permission on mount
   useEffect(() => {
+    if (!notificationService || !isClient) return;
     setHasPermission(notificationService.hasPermission());
-  }, [notificationService]);
+  }, [notificationService, isClient]);
 
   // Get calls that need notifications
   const getCallsNeedingNotification = useCallback(() => {
@@ -160,7 +174,7 @@ export function useCallNotifications(calls: Call[], employees: Employee[]) {
 
   // Main notification check interval
   useEffect(() => {
-    if (!settings.enabled || !hasPermission) return;
+    if (!settings.enabled || !hasPermission || !isClient || !notificationService) return;
 
     const checkNotifications = () => {
       const { upcomingCalls, overdueCalls } = getCallsNeedingNotification();
@@ -199,11 +213,11 @@ export function useCallNotifications(calls: Call[], employees: Employee[]) {
     const interval = setInterval(checkNotifications, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [settings.enabled, hasPermission, getCallsNeedingNotification, showCallReminder, showOverdueNotification]);
+  }, [settings.enabled, hasPermission, isClient, notificationService, getCallsNeedingNotification, showCallReminder, showOverdueNotification]);
 
   // Daily reminder at 9 AM
   useEffect(() => {
-    if (!settings.enabled || !settings.dailyReminder || !hasPermission) return;
+    if (!settings.enabled || !settings.dailyReminder || !hasPermission || !isClient || !notificationService) return;
 
     const now = new Date();
     const target = new Date();
@@ -226,10 +240,12 @@ export function useCallNotifications(calls: Call[], employees: Employee[]) {
     }, timeUntilTarget);
 
     return () => clearTimeout(timeout);
-  }, [settings.enabled, settings.dailyReminder, hasPermission, showDailyReminder]);
+  }, [settings.enabled, settings.dailyReminder, hasPermission, isClient, notificationService, showDailyReminder]);
 
   // Test notification function
   const testNotification = useCallback(async () => {
+    if (!isClient || !notificationService) return false;
+    
     if (!hasPermission) {
       const granted = await requestPermission();
       if (!granted) return false;
@@ -244,7 +260,7 @@ export function useCallNotifications(calls: Call[], employees: Employee[]) {
     );
 
     return true;
-  }, [hasPermission, requestPermission, notificationService]);
+  }, [isClient, hasPermission, requestPermission, notificationService]);
 
   return {
     settings,
@@ -252,7 +268,7 @@ export function useCallNotifications(calls: Call[], employees: Employee[]) {
     hasPermission,
     requestPermission,
     testNotification,
-    isSupported: notificationService.isSupported(),
-    clearAllNotifications: () => notificationService.clearAllNotifications()
+    isSupported: notificationService?.isSupported() ?? false,
+    clearAllNotifications: () => notificationService?.clearAllNotifications?.()
   };
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Check, ChevronDown, X, Search } from 'lucide-react';
@@ -51,55 +51,63 @@ export function Autocomplete({
   const inputRef = useRef<HTMLInputElement>(null);
   const optionsRef = useRef<HTMLDivElement>(null);
 
-  // Filter options based on input
-  const filterOptions = useCallback((searchValue: string) => {
-    if (!searchValue || searchValue.length < minCharsToSearch) {
-      return options.slice(0, maxSuggestions);
-    }
-
-    const searchLower = searchValue.toLowerCase();
-    
-    // Score-based filtering for better results
-    const scored = options.map(option => {
-      const labelLower = option.label.toLowerCase();
-      const descriptionLower = option.description?.toLowerCase() || '';
-      
-      let score = 0;
-      
-      // Exact match gets highest score
-      if (labelLower === searchLower) score += 100;
-      // Starts with gets high score
-      else if (labelLower.startsWith(searchLower)) score += 50;
-      // Contains gets medium score
-      else if (labelLower.includes(searchLower)) score += 25;
-      // Description match gets lower score
-      else if (descriptionLower.includes(searchLower)) score += 10;
-      
-      // Boost score based on frequency
-      if (option.frequency) score += option.frequency / 10;
-      
-      return { option, score };
-    });
-    
-    return scored
-      .filter(({ score }) => score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, maxSuggestions)
-      .map(({ option }) => option);
-  }, [options, maxSuggestions, minCharsToSearch]);
 
   // Update filtered options when input changes
   useEffect(() => {
-    const filtered = filterOptions(inputValue);
-    setFilteredOptions(filtered);
-    setSelectedIndex(-1);
-  }, [inputValue, filterOptions]);
+    let timeoutId: NodeJS.Timeout;
+    
+    // Debounce to prevent excessive filtering
+    timeoutId = setTimeout(() => {
+      if (!inputValue || inputValue.length < minCharsToSearch) {
+        setFilteredOptions(options.slice(0, maxSuggestions));
+        setSelectedIndex(-1);
+        return;
+      }
+
+      const searchLower = inputValue.toLowerCase();
+      
+      // Score-based filtering for better results
+      const scored = options.map(option => {
+        const labelLower = option.label.toLowerCase();
+        const descriptionLower = option.description?.toLowerCase() || '';
+        
+        let score = 0;
+        
+        // Exact match gets highest score
+        if (labelLower === searchLower) score += 100;
+        // Starts with gets high score
+        else if (labelLower.startsWith(searchLower)) score += 50;
+        // Contains gets medium score
+        else if (labelLower.includes(searchLower)) score += 25;
+        // Description match gets lower score
+        else if (descriptionLower.includes(searchLower)) score += 10;
+        
+        // Boost score based on frequency
+        if (option.frequency) score += option.frequency / 10;
+        
+        return { option, score };
+      });
+      
+      const filtered = scored
+        .filter(({ score }) => score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxSuggestions)
+        .map(({ option }) => option);
+        
+      setFilteredOptions(filtered);
+      setSelectedIndex(-1);
+    }, 100); // 100ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [inputValue, options, maxSuggestions, minCharsToSearch]);
 
   // Handle input change
   const handleInputChange = (newValue: string) => {
-    setInputValue(newValue);
-    onChange(newValue);
-    setIsOpen(newValue.length >= minCharsToSearch || filteredOptions.length > 0);
+    if (newValue !== inputValue) {
+      setInputValue(newValue);
+      onChange(newValue);
+      setIsOpen(newValue.length >= minCharsToSearch || filteredOptions.length > 0);
+    }
   };
 
   // Handle option selection
@@ -172,10 +180,12 @@ export function Autocomplete({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Update input value when prop changes
+  // Update input value when prop changes (avoid infinite loops)
   useEffect(() => {
-    setInputValue(value);
-  }, [value]);
+    if (inputValue !== value) {
+      setInputValue(value);
+    }
+  }, [value]); // Removed inputValue from dependencies to prevent loops
 
   const defaultRenderOption = (option: AutocompleteOption, isSelected: boolean) => (
     <div className={`px-3 py-2 cursor-pointer ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>

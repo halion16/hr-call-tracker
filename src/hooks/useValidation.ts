@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { validationEngine, ValidationResult, ValidationMessage } from '@/lib/validation';
 
 export interface UseValidationProps {
@@ -32,8 +32,11 @@ export function useValidation({
   const [fieldValidations, setFieldValidations] = useState<Record<string, ValidationResult>>({});
   const [isValidating, setIsValidating] = useState(false);
 
+  // Stabilize context to prevent unnecessary re-renders
+  const stableContext = useMemo(() => context, [JSON.stringify(context)]);
+
   const validateField = useCallback((field: string, value: any): ValidationResult => {
-    const result = validationEngine.validateField(entity, field, value, context);
+    const result = validationEngine.validateField(entity, field, value, stableContext);
     
     if (realTimeValidation) {
       setFieldValidations(prev => ({
@@ -43,18 +46,18 @@ export function useValidation({
     }
     
     return result;
-  }, [entity, context, realTimeValidation]);
+  }, [entity, stableContext, realTimeValidation]);
 
   const validateObject = useCallback((object: Record<string, any>): ValidationResult => {
     setIsValidating(true);
     
-    const result = validationEngine.validateObject(entity, object, context);
+    const result = validationEngine.validateObject(entity, object, stableContext);
     
     // Update field validations for each field
     const newFieldValidations: Record<string, ValidationResult> = {};
     
     for (const [field, value] of Object.entries(object)) {
-      const fieldResult = validationEngine.validateField(entity, field, value, context);
+      const fieldResult = validationEngine.validateField(entity, field, value, stableContext);
       newFieldValidations[field] = fieldResult;
     }
     
@@ -62,7 +65,7 @@ export function useValidation({
     setIsValidating(false);
     
     return result;
-  }, [entity, context]);
+  }, [entity, stableContext]);
 
   const getFieldErrors = useCallback((field: string): ValidationMessage[] => {
     return fieldValidations[field]?.errors || [];
@@ -105,7 +108,7 @@ export function useValidation({
                           previousResult.info[0]?.value;
         
         if (lastValue !== undefined) {
-          updatedValidations[field] = validationEngine.validateField(entity, field, lastValue, context);
+          updatedValidations[field] = validationEngine.validateField(entity, field, lastValue, stableContext);
         }
       });
       
@@ -113,7 +116,7 @@ export function useValidation({
         setFieldValidations(prev => ({ ...prev, ...updatedValidations }));
       }
     }
-  }, [context, entity, realTimeValidation, fieldValidations]);
+  }, [stableContext, entity, realTimeValidation]);
 
   return {
     validateField,

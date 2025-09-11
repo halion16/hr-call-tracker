@@ -22,12 +22,9 @@ import { AdvancedFilterPanel } from '@/components/filters/advanced-filter-panel'
 import { CallFilters, filterManager } from '@/lib/filters';
 import { QuickActions } from '@/components/calls/quick-actions';
 import { BulkQuickActions } from '@/components/calls/bulk-quick-actions';
-import { useValidation } from '@/hooks/useValidation';
-import { FieldValidationMessage, ValidationSummary } from '@/components/ui/validation-message';
-import { Autocomplete } from '@/components/ui/autocomplete';
-import { autocompleteService } from '@/lib/autocomplete-service';
 import { TemplateSelector } from '@/components/templates/template-selector';
 import { callTemplatesService, CallTemplate } from '@/lib/call-templates-service';
+import { autocompleteService } from '@/lib/autocomplete-service';
 
 interface CallWithEmployee extends Call {
   employee: Employee;
@@ -87,23 +84,6 @@ export default function CallsPage() {
   const [advancedFilters, setAdvancedFilters] = useState<CallFilters>({});
   
   // Validation for call scheduling
-  const callValidation = useValidation({ 
-    entity: 'call', 
-    context: { 
-      employeeId: formData.employeeId,
-      existingCalls: calls,
-      allowPast: false 
-    }
-  });
-  
-  // Validation for call completion
-  const completeCallValidation = useValidation({ 
-    entity: 'call',
-    context: { 
-      allowPast: true,
-      isCompletion: true
-    }
-  });
 
   // Initialize push notifications
   const {
@@ -183,29 +163,14 @@ export default function CallsPage() {
       ? Array.from(bulkEmployeeIds)
       : formData.employeeId ? [formData.employeeId] : [];
     
-    // Validate form data
-    const validationContext = {
-      employeeId: formData.employeeId,
-      existingCalls: calls,
-      allowPast: false
-    };
+    // Basic validation
+    if (employeeIds.length === 0) {
+      toast.error(bulkMode ? 'Seleziona almeno un dipendente' : 'Seleziona un dipendente');
+      return;
+    }
     
-    const validationResult = callValidation.validateObject({
-      employeeId: formData.employeeId,
-      dataSchedulata: formData.dataSchedulata,
-      note: formData.note
-    });
-    
-    if (!validationResult.isValid || employeeIds.length === 0 || !formData.dataSchedulata) {
-      if (employeeIds.length === 0) {
-        toast.error(bulkMode ? 'Seleziona almeno un dipendente' : 'Seleziona un dipendente');
-      }
-      if (!formData.dataSchedulata) {
-        toast.error('Seleziona data e ora');
-      }
-      if (!validationResult.isValid) {
-        toast.error('Correggi gli errori di validazione prima di continuare');
-      }
+    if (!formData.dataSchedulata) {
+      toast.error('Seleziona data e ora');
       return;
     }
     
@@ -283,6 +248,8 @@ export default function CallsPage() {
       descriptionParts.push(`Promemoria ed escalation attivati`);
       
       // Usa toast personalizzata
+      const selectedEmployees = employeeIds.map(id => employees.find(emp => emp.id === id)).filter(Boolean);
+      
       if (bulkMode && selectedEmployees.length > 1) {
         callToasts.bulkCallsScheduled(selectedEmployees.length, {
           description: descriptionParts.join(' • '),
@@ -329,24 +296,14 @@ export default function CallsPage() {
       return;
     }
     
-    // Validate completion form
-    const completionValidationResult = completeCallValidation.validateObject({
-      durata: parseInt(formData.durata) || 0,
-      rating: parseInt(formData.rating) || 0,
-      note: formData.note,
-      nextCallDate: formData.nextCallDate
-    });
+    // Basic validation for completion
+    if (!formData.durata) {
+      toast.error('Inserisci la durata della call');
+      return;
+    }
     
-    if (!completionValidationResult.isValid || !formData.durata || !formData.rating) {
-      if (!formData.durata) {
-        toast.error('Inserisci la durata della call');
-      }
-      if (!formData.rating) {
-        toast.error('Seleziona una valutazione');
-      }
-      if (!completionValidationResult.isValid) {
-        toast.error('Correggi gli errori di validazione prima di continuare');
-      }
+    if (!formData.rating) {
+      toast.error('Seleziona una valutazione');
       return;
     }
     
@@ -1018,13 +975,6 @@ export default function CallsPage() {
           <CardContent>
             <form onSubmit={scheduleCall} className="space-y-4">
               {/* Validation Summary */}
-              {callValidation.hasErrors && (
-                <ValidationSummary
-                  errorCount={Object.values(callValidation.fieldValidations).reduce((acc, val) => acc + val.errors.length, 0)}
-                  warningCount={Object.values(callValidation.fieldValidations).reduce((acc, val) => acc + val.warnings.length, 0)}
-                  infoCount={Object.values(callValidation.fieldValidations).reduce((acc, val) => acc + val.info.length, 0)}
-                />
-              )}
               
               <div>
                 <label className="block text-sm font-medium mb-2">
@@ -1034,17 +984,11 @@ export default function CallsPage() {
                 {bulkMode ? (
                   <div className="space-y-3">
                     {/* Search Filter */}
-                    <Autocomplete
+                    <Input
                       value={employeeSearchQuery}
-                      onChange={setEmployeeSearchQuery}
-                      options={autocompleteService.getEmployeeSuggestions(employeeSearchQuery)}
+                      onChange={(e) => setEmployeeSearchQuery(e.target.value)}
                       placeholder="Cerca dipendenti per nome, posizione, dipartimento..."
                       className="w-full"
-                      allowCustom={true}
-                      showFrequency={false}
-                      onSelect={(option) => {
-                        autocompleteService.addSuggestion('employee-search', option.value, 'employee-selection');
-                      }}
                     />
                     
                     {/* Bulk Selection Controls */}
@@ -1111,19 +1055,40 @@ export default function CallsPage() {
                     </div>
                   </div>
                 ) : (
-                  <select 
-                    value={formData.employeeId}
-                    onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
-                    className="w-full p-2 border border-gray-300 rounded-md"
-                    required
-                  >
-                    <option value="">Seleziona dipendente</option>
-                    {employees.map(emp => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.nome} {emp.cognome} - {emp.posizione}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="space-y-2">
+                    {/* Search Filter for Single Mode */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                      <Input
+                        type="text"
+                        placeholder="Cerca dipendente per nome, cognome, posizione..."
+                        value={employeeSearchQuery}
+                        onChange={(e) => setEmployeeSearchQuery(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                    
+                    {/* Employee Selection Dropdown */}
+                    <select 
+                      value={formData.employeeId}
+                      onChange={(e) => setFormData({...formData, employeeId: e.target.value})}
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      required
+                    >
+                      <option value="">Seleziona dipendente</option>
+                      {getFilteredEmployees().map(emp => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.nome} {emp.cognome} - {emp.posizione} ({emp.dipartimento})
+                        </option>
+                      ))}
+                    </select>
+                    
+                    {getFilteredEmployees().length === 0 && employeeSearchQuery && (
+                      <p className="text-sm text-gray-500 italic">
+                        Nessun dipendente trovato per "{employeeSearchQuery}"
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
               
@@ -1134,17 +1099,8 @@ export default function CallsPage() {
                   value={formData.dataSchedulata}
                   onChange={(e) => {
                     setFormData({...formData, dataSchedulata: e.target.value});
-                    callValidation.validateField('dataSchedulata', e.target.value);
                   }}
                   required
-                  className={callValidation.getFieldErrors('dataSchedulata').length > 0 ? 'border-red-300' : ''}
-                />
-                <FieldValidationMessage
-                  fieldName="dataSchedulata"
-                  errors={callValidation.getFieldErrors('dataSchedulata')}
-                  warnings={callValidation.getFieldWarnings('dataSchedulata')}
-                  info={callValidation.getFieldInfo('dataSchedulata')}
-                  showAll={true}
                 />
               </div>
               
@@ -1182,27 +1138,13 @@ export default function CallsPage() {
                   </div>
                 )}
                 
-                <Autocomplete
+                <Textarea
                   value={formData.note}
-                  onChange={(value) => {
-                    setFormData({...formData, note: value});
-                    callValidation.validateField('note', value);
+                  onChange={(e) => {
+                    setFormData({...formData, note: e.target.value});
                   }}
-                  options={autocompleteService.getCallNotesSuggestions()}
                   placeholder="Argomenti da discutere, obiettivi della call..."
-                  className={callValidation.getFieldErrors('note').length > 0 ? 'border-red-300' : ''}
-                  allowCustom={true}
-                  showFrequency={true}
-                  onSelect={(option) => {
-                    autocompleteService.addSuggestion('call-notes', option.value, 'call-scheduling');
-                  }}
-                />
-                <FieldValidationMessage
-                  fieldName="note"
-                  errors={callValidation.getFieldErrors('note')}
-                  warnings={callValidation.getFieldWarnings('note')}
-                  info={callValidation.getFieldInfo('note')}
-                  showAll={true}
+                  rows={3}
                 />
               </div>
               
@@ -1229,14 +1171,6 @@ export default function CallsPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={completeCall} className="space-y-4">
-              {/* Validation Summary */}
-              {completeCallValidation.hasErrors && (
-                <ValidationSummary
-                  errorCount={Object.values(completeCallValidation.fieldValidations).reduce((acc, val) => acc + val.errors.length, 0)}
-                  warningCount={Object.values(completeCallValidation.fieldValidations).reduce((acc, val) => acc + val.warnings.length, 0)}
-                  infoCount={Object.values(completeCallValidation.fieldValidations).reduce((acc, val) => acc + val.info.length, 0)}
-                />
-              )}
               
               <div>
                 <label className="block text-sm font-medium mb-2">Durata (minuti)</label>
@@ -1246,18 +1180,9 @@ export default function CallsPage() {
                   value={formData.durata}
                   onChange={(e) => {
                     setFormData({...formData, durata: e.target.value});
-                    completeCallValidation.validateField('durata', parseInt(e.target.value) || 0);
                   }}
                   placeholder="30"
                   required
-                  className={completeCallValidation.getFieldErrors('durata').length > 0 ? 'border-red-300' : ''}
-                />
-                <FieldValidationMessage
-                  fieldName="durata"
-                  errors={completeCallValidation.getFieldErrors('durata')}
-                  warnings={completeCallValidation.getFieldWarnings('durata')}
-                  info={completeCallValidation.getFieldInfo('durata')}
-                  showAll={true}
                 />
               </div>
               
@@ -1278,19 +1203,13 @@ export default function CallsPage() {
               
               <div>
                 <label className="block text-sm font-medium mb-2">Note della call</label>
-                <Autocomplete
+                <Textarea
                   value={formData.note}
-                  onChange={(value) => {
-                    setFormData({...formData, note: value});
-                    completeCallValidation.validateField('note', value);
+                  onChange={(e) => {
+                    setFormData({...formData, note: e.target.value});
                   }}
-                  options={autocompleteService.getCallNotesSuggestions()}
                   placeholder="Riassunto della discussione, punti salienti, feedback..."
-                  allowCustom={true}
-                  showFrequency={true}
-                  onSelect={(option) => {
-                    autocompleteService.addSuggestion('call-notes', option.value, 'call-completion');
-                  }}
+                  rows={3}
                 />
               </div>
               
@@ -1339,16 +1258,11 @@ export default function CallsPage() {
               
               <div>
                 <label className="block text-sm font-medium mb-2">Note (opzionale)</label>
-                <Autocomplete
+                <Textarea
                   value={rescheduleData.note}
-                  onChange={(value) => setRescheduleData({...rescheduleData, note: value})}
-                  options={autocompleteService.getCallNotesSuggestions()}
+                  onChange={(e) => setRescheduleData({...rescheduleData, note: e.target.value})}
                   placeholder="Motivo della riprogrammazione, nuovi argomenti da discutere..."
-                  allowCustom={true}
-                  showFrequency={true}
-                  onSelect={(option) => {
-                    autocompleteService.addSuggestion('reschedule-notes', option.value, 'call-rescheduling');
-                  }}
+                  rows={3}
                 />
               </div>
               
@@ -1381,7 +1295,23 @@ export default function CallsPage() {
           <CardDescription>Ultime modifiche alle call</CardDescription>
         </CardHeader>
         <CardContent>
-          {(() => {
+          {!isClient ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                <div className="flex items-center space-x-4 text-sm">
+                  <span className="font-medium text-blue-900">
+                    ... modifiche oggi
+                  </span>
+                  <span className="text-blue-700">
+                    ... totali
+                  </span>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 py-4 text-center">
+                Caricamento attività...
+              </p>
+            </div>
+          ) : (() => {
             const recentModifications = CallTrackingService.getRecentModifications(15);
             const stats = CallTrackingService.getModificationStats();
             
@@ -1390,10 +1320,10 @@ export default function CallsPage() {
                 <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                   <div className="flex items-center space-x-4 text-sm">
                     <span className="font-medium text-blue-900">
-                      {isClient ? stats.todayModifications : '...'} modifiche oggi
+                      {stats.todayModifications} modifiche oggi
                     </span>
                     <span className="text-blue-700">
-                      {isClient ? stats.totalModifications : '...'} totali
+                      {stats.totalModifications} totali
                     </span>
                   </div>
                 </div>
@@ -1436,31 +1366,42 @@ export default function CallsPage() {
             </div>
             <div className="flex items-center gap-2">
               {/* Notification settings button */}
-              {notificationsSupported && (
+              {!isClient ? (
+                // Server-side placeholder button
                 <button
-                  onClick={async () => {
-                    if (!hasPermission) {
-                      const granted = await requestPermission();
-                      if (granted) {
-                        updateNotificationSettings({ enabled: true });
-                        toast.success('Notifiche abilitate!');
-                      }
-                    } else {
-                      const success = await testNotification();
-                      if (success) {
-                        toast.success('Test notifica inviato!');
-                      }
-                    }
-                  }}
-                  className={`p-2 rounded-lg transition-colors ${
-                    notificationSettings.enabled && hasPermission
-                      ? 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                  title={hasPermission ? 'Test notifica' : 'Abilita notifiche'}
+                  className="p-2 rounded-lg transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  title="Caricamento notifiche..."
+                  disabled
                 >
                   <Bell className="h-4 w-4" />
                 </button>
+              ) : (
+                notificationsSupported && (
+                  <button
+                    onClick={async () => {
+                      if (!hasPermission) {
+                        const granted = await requestPermission();
+                        if (granted) {
+                          updateNotificationSettings({ enabled: true });
+                          toast.success('Notifiche abilitate!');
+                        }
+                      } else {
+                        const success = await testNotification();
+                        if (success) {
+                          toast.success('Test notifica inviato!');
+                        }
+                      }
+                    }}
+                    className={`p-2 rounded-lg transition-colors ${
+                      notificationSettings.enabled && hasPermission
+                        ? 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                    title={hasPermission ? 'Test notifica' : 'Abilita notifiche'}
+                  >
+                    <Bell className="h-4 w-4" />
+                  </button>
+                )
               )}
               
               <Button
@@ -1483,17 +1424,11 @@ export default function CallsPage() {
             <div className="flex-1">
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400 z-10" />
-                <Autocomplete
+                <Input
                   value={callSearchFilter}
-                  onChange={setCallSearchFilter}
-                  options={autocompleteService.getSuggestions('call-search')}
+                  onChange={(e) => setCallSearchFilter(e.target.value)}
                   placeholder="Cerca per nome, posizione, dipartimento o note..."
                   className="pl-10"
-                  allowCustom={true}
-                  showFrequency={false}
-                  onSelect={(option) => {
-                    autocompleteService.addSuggestion('call-search', option.value, 'call-filtering');
-                  }}
                 />
               </div>
             </div>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Autocomplete Debug Test</title>
+</head>
+<body>
+    <h2>Autocomplete Component Debug Test</h2>
+    <p>This is a simple test to verify our fixes. Open the browser console and check for any errors or infinite loops when interacting with autocomplete components in the app.</p>
+    
+    <h3>Key fixes implemented:</h3>
+    <ol>
+        <li><strong>Infinite Loop Fix:</strong> Added proper dependency management and conditional updates in useEffect hooks</li>
+        <li><strong>SSR Safety:</strong> Added window type checks to prevent server-side execution errors</li>
+        <li><strong>Debouncing:</strong> Added 100ms debounce to search filtering to prevent excessive re-renders</li>
+        <li><strong>Conditional rendering:</strong> Added proper guards for client-side only features</li>
+    </ol>
+    
+    <h3>Test Instructions:</h3>
+    <ol>
+        <li>Navigate to http://localhost:3005/calls</li>
+        <li>Click "Pianifica Nuova Call"</li>
+        <li>Try typing in the Notes field with autocomplete</li>
+        <li>Try typing in the search fields</li>
+        <li>Check browser console for any errors</li>
+        <li>Verify no "Maximum update depth exceeded" errors occur</li>
+    </ol>
+</body>
+</html>
