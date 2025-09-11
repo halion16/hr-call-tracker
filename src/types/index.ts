@@ -17,6 +17,19 @@ export interface Employee {
   lastCallRating?: number;
   averageCallRating?: number;
   totalCalls?: number;
+  // New fields for Employee Lifecycle Management
+  lifecycleStage?: 'onboarding' | 'active' | 'development' | 'retention' | 'offboarding' | 'alumni';
+  onboardingProgress?: number; // 0-100%
+  onboardingTasks?: OnboardingTask[];
+  careerGoals?: CareerGoal[];
+  skillAssessments?: SkillAssessment[];
+  performanceHistory?: PerformanceReview[];
+  developmentPlan?: DevelopmentPlan;
+  mentorId?: string;
+  directReports?: string[];
+  offboardingReason?: string;
+  offboardingDate?: string;
+  exitInterviewCompleted?: boolean;
 }
 
 export interface Call {
@@ -158,4 +171,278 @@ export interface NotificationChannel {
   type: 'in_app' | 'email' | 'sms' | 'push';
   enabled: boolean;
   config?: Record<string, any>;
+}
+
+// Employee Lifecycle Management Types
+
+export interface OnboardingTask {
+  id: string;
+  title: string;
+  description: string;
+  category: 'documentation' | 'training' | 'setup' | 'meeting' | 'system_access';
+  status: 'pending' | 'in_progress' | 'completed' | 'skipped';
+  priority: 'high' | 'medium' | 'low';
+  dueDate?: string;
+  completedDate?: string;
+  assignedTo?: string; // HR or manager ID
+  dependencies?: string[]; // other task IDs
+  resources?: TaskResource[];
+  autoAssigned: boolean;
+}
+
+export interface TaskResource {
+  type: 'document' | 'video' | 'link' | 'contact';
+  title: string;
+  url?: string;
+  description?: string;
+}
+
+export interface CareerGoal {
+  id: string;
+  employeeId: string;
+  title: string;
+  description: string;
+  category: 'skill_development' | 'promotion' | 'role_change' | 'certification' | 'leadership';
+  priority: 'high' | 'medium' | 'low';
+  targetDate: string;
+  status: 'active' | 'in_progress' | 'completed' | 'paused' | 'cancelled';
+  progress: number; // 0-100%
+  milestones: CareerMilestone[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CareerMilestone {
+  id: string;
+  title: string;
+  description: string;
+  targetDate: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  completedDate?: string;
+  evidence?: string; // description of achievement
+}
+
+export interface SkillAssessment {
+  id: string;
+  employeeId: string;
+  skill: string;
+  category: 'technical' | 'soft' | 'leadership' | 'domain';
+  currentLevel: number; // 1-5 scale
+  targetLevel: number; // 1-5 scale
+  assessmentDate: string;
+  assessedBy: string; // manager or self
+  improvementPlan?: string;
+  nextAssessmentDate?: string;
+  evidences?: string[];
+}
+
+export interface PerformanceReview {
+  id: string;
+  employeeId: string;
+  reviewPeriod: {
+    startDate: string;
+    endDate: string;
+  };
+  overallRating: number; // 1-5 scale
+  reviewType: 'annual' | 'semi_annual' | 'quarterly' | 'probation' | 'project_based';
+  categories: PerformanceCategory[];
+  strengths: string[];
+  areasForImprovement: string[];
+  goals: PerformanceGoal[];
+  reviewerComments: string;
+  employeeComments?: string;
+  status: 'draft' | 'pending_employee_review' | 'pending_manager_approval' | 'completed';
+  reviewerId: string;
+  completedDate?: string;
+  createdAt: string;
+}
+
+export interface PerformanceCategory {
+  name: string;
+  rating: number; // 1-5 scale
+  weight: number; // percentage of overall rating
+  feedback: string;
+}
+
+export interface PerformanceGoal {
+  id: string;
+  title: string;
+  description: string;
+  category: 'performance' | 'behavior' | 'skill' | 'project';
+  targetDate: string;
+  status: 'active' | 'completed' | 'cancelled';
+  measurementCriteria: string;
+}
+
+export interface DevelopmentPlan {
+  id: string;
+  employeeId: string;
+  planPeriod: {
+    startDate: string;
+    endDate: string;
+  };
+  objectives: DevelopmentObjective[];
+  learningActivities: LearningActivity[];
+  mentorshipProgram?: MentorshipInfo;
+  budget: number;
+  status: 'active' | 'completed' | 'paused';
+  progress: number; // 0-100%
+  lastUpdated: string;
+  createdAt: string;
+}
+
+export interface DevelopmentObjective {
+  id: string;
+  title: string;
+  description: string;
+  targetSkills: string[];
+  successCriteria: string;
+  targetDate: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  progress: number; // 0-100%
+}
+
+export interface LearningActivity {
+  id: string;
+  title: string;
+  type: 'training' | 'course' | 'workshop' | 'conference' | 'mentoring' | 'project' | 'certification';
+  provider?: string;
+  duration: number; // hours
+  cost: number;
+  status: 'planned' | 'enrolled' | 'in_progress' | 'completed' | 'cancelled';
+  completionDate?: string;
+  certificate?: boolean;
+  rating?: number; // 1-5 scale
+}
+
+export interface MentorshipInfo {
+  mentorId: string;
+  startDate: string;
+  endDate?: string;
+  focus: string[];
+  meetingFrequency: 'weekly' | 'biweekly' | 'monthly';
+  status: 'active' | 'completed' | 'paused';
+}
+
+export interface OffboardingProcess {
+  id: string;
+  employeeId: string;
+  initiatedBy: string;
+  reason: 'resignation' | 'termination' | 'retirement' | 'end_of_contract' | 'redundancy';
+  lastWorkingDay: string;
+  checklist: OffboardingTask[];
+  exitInterview?: ExitInterview;
+  knowledgeTransfer: KnowledgeTransferItem[];
+  status: 'initiated' | 'in_progress' | 'completed';
+  progress: number; // 0-100%
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface OffboardingTask {
+  id: string;
+  title: string;
+  description: string;
+  category: 'hr' | 'it' | 'finance' | 'operations' | 'knowledge_transfer';
+  assignedTo: string;
+  dueDate: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'skipped';
+  completedDate?: string;
+  notes?: string;
+  priority: 'high' | 'medium' | 'low';
+}
+
+export interface ExitInterview {
+  id: string;
+  employeeId: string;
+  conductedBy: string;
+  interviewDate: string;
+  format: 'in_person' | 'video' | 'phone' | 'survey';
+  overallSatisfaction: number; // 1-5 scale
+  reasonForLeaving: string;
+  wouldRecommend: boolean;
+  feedback: ExitFeedback[];
+  improvementSuggestions: string[];
+  rehireEligible: boolean;
+  notes?: string;
+  status: 'scheduled' | 'completed' | 'cancelled';
+}
+
+export interface ExitFeedback {
+  category: 'management' | 'work_environment' | 'compensation' | 'career_development' | 'work_life_balance' | 'company_culture';
+  rating: number; // 1-5 scale
+  comments?: string;
+}
+
+export interface KnowledgeTransferItem {
+  id: string;
+  title: string;
+  description: string;
+  category: 'project' | 'process' | 'relationship' | 'system' | 'documentation';
+  transferTo: string; // employee ID
+  priority: 'critical' | 'important' | 'nice_to_have';
+  status: 'pending' | 'in_progress' | 'completed';
+  deadline: string;
+  completedDate?: string;
+  transferMethod: 'documentation' | 'meeting' | 'shadowing' | 'training_session';
+  notes?: string;
+}
+
+// Employee Lifecycle Analytics
+export interface LifecycleMetrics {
+  stage: 'onboarding' | 'active' | 'development' | 'retention' | 'offboarding';
+  count: number;
+  averageDuration?: number; // days
+  successRate?: number; // percentage
+  trends: {
+    period: string;
+    value: number;
+  }[];
+}
+
+export interface OnboardingMetrics {
+  averageTimeToProductivity: number; // days
+  completionRate: number; // percentage
+  satisfactionScore: number; // 1-5 scale
+  dropoutRate: number; // percentage
+  taskCompletionRates: {
+    category: string;
+    completionRate: number;
+  }[];
+}
+
+export interface PerformanceMetrics {
+  averageRating: number;
+  distributionByRating: {
+    rating: number;
+    count: number;
+  }[];
+  improvementTrends: {
+    period: string;
+    averageRating: number;
+  }[];
+  goalAchievementRate: number; // percentage
+}
+
+export interface DevelopmentMetrics {
+  activePlans: number;
+  completionRate: number; // percentage
+  budgetUtilization: number; // percentage
+  skillImprovementRate: number; // percentage
+  popularLearningTypes: {
+    type: string;
+    count: number;
+  }[];
+}
+
+export interface OffboardingMetrics {
+  averageProcessDuration: number; // days
+  exitInterviewParticipation: number; // percentage
+  knowledgeTransferCompletion: number; // percentage
+  rehireEligibilityRate: number; // percentage
+  reasonsForLeaving: {
+    reason: string;
+    count: number;
+    percentage: number;
+  }[];
 }

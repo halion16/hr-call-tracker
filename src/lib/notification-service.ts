@@ -531,6 +531,39 @@ export class NotificationService {
     }
   }
 
+  // Email notification method (for external integrations)
+  static async sendEmail(emailData: {
+    to: string;
+    subject: string;
+    html: string;
+    priority?: string;
+  }): Promise<void> {
+    // TODO: Implement actual email sending via backend API
+    // For now, log the email notification
+    console.log('📧 Email notification:', {
+      to: emailData.to,
+      subject: emailData.subject,
+      priority: emailData.priority,
+      html: emailData.html.substring(0, 100) + '...'
+    });
+    
+    // Simulate async email sending
+    return new Promise(resolve => setTimeout(resolve, 100));
+  }
+
+  // SMS notification method (for external integrations)
+  static async sendSMS(phoneNumber: string, message: string): Promise<void> {
+    // TODO: Implement actual SMS sending via SMS service provider
+    // For now, log the SMS notification
+    console.log('📱 SMS notification:', {
+      to: phoneNumber,
+      message: message
+    });
+    
+    // Simulate async SMS sending
+    return new Promise(resolve => setTimeout(resolve, 100));
+  }
+
   // Get notification statistics
   static async getStats(): Promise<{
     total: number;

@@ -12,7 +12,8 @@ import {
   Home,
   TrendingUp,
   Bell,
-  Brain
+  Brain,
+  UserCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
@@ -23,6 +24,7 @@ const navigation = [
   { name: 'Call', href: '/calls', icon: Phone },
   { name: 'Dipendenti', href: '/employees', icon: Users },
   { name: 'Workflow AI', href: '/workflow', icon: Brain, badge: 'NEW' },
+  { name: 'Employee Lifecycle', href: '/lifecycle', icon: UserCheck, badge: 'FASE 2' },
   { name: 'Priorità', href: '/priorities', icon: TrendingUp },
   { name: 'Calendario', href: '/calendar', icon: Calendar },
   { name: 'Report', href: '/reports', icon: BarChart3 },
