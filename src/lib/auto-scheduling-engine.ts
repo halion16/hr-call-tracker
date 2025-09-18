@@ -47,6 +47,9 @@ export class AutoSchedulingEngine {
    * Analizza tutti i dipendenti e genera suggerimenti automatici
    */
   async generateSchedulingSuggestions(): Promise<SchedulingSuggestion[]> {
+    // Clean up old dismissed suggestions first
+    this.cleanupOldDismissedSuggestions();
+
     const employees = LocalStorage.getEmployees();
     const calls = LocalStorage.getCalls();
     const newSuggestions: SchedulingSuggestion[] = [];
@@ -331,19 +334,40 @@ export class AutoSchedulingEngine {
    */
   private mergeSuggestions(newSuggestions: SchedulingSuggestion[]): void {
     for (const newSuggestion of newSuggestions) {
-      const existing = this.suggestions.find(s => 
-        s.employeeId === newSuggestion.employeeId && 
+      // Check if there's already any suggestion for this employee (pending or dismissed)
+      const existingPending = this.suggestions.find(s =>
+        s.employeeId === newSuggestion.employeeId &&
         s.status === 'pending'
       );
 
-      if (existing) {
-        // Update existing with new data
-        existing.triggers = newSuggestion.triggers;
-        existing.reasoning = newSuggestion.reasoning;
-        existing.priority = newSuggestion.priority;
-        existing.confidence = newSuggestion.confidence;
-        existing.suggestedDate = newSuggestion.suggestedDate;
+      const existingDismissed = this.suggestions.find(s =>
+        s.employeeId === newSuggestion.employeeId &&
+        s.status === 'dismissed'
+      );
+
+      if (existingPending) {
+        // Update existing pending suggestion with new data
+        existingPending.triggers = newSuggestion.triggers;
+        existingPending.reasoning = newSuggestion.reasoning;
+        existingPending.priority = newSuggestion.priority;
+        existingPending.confidence = newSuggestion.confidence;
+        existingPending.suggestedDate = newSuggestion.suggestedDate;
+      } else if (existingDismissed) {
+        // Don't recreate suggestions for dismissed employees
+        // Check if it's been dismissed recently (within last 24 hours)
+        const dismissedDate = new Date(existingDismissed.dismissedAt || existingDismissed.createdAt);
+        const now = new Date();
+        const hoursSinceDismissed = (now.getTime() - dismissedDate.getTime()) / (1000 * 60 * 60);
+
+        if (hoursSinceDismissed < 24) {
+          // Skip this suggestion - too recent dismissal
+          continue;
+        } else {
+          // More than 24 hours since dismissal, allow new suggestion
+          this.suggestions.push(newSuggestion);
+        }
       } else {
+        // No existing suggestion for this employee
         this.suggestions.push(newSuggestion);
       }
     }
@@ -437,6 +461,7 @@ export class AutoSchedulingEngine {
     const suggestion = this.suggestions.find(s => s.id === suggestionId);
     if (suggestion) {
       suggestion.status = 'dismissed';
+      suggestion.dismissedAt = new Date().toISOString();
       this.saveSuggestions();
     }
   }
@@ -484,6 +509,22 @@ export class AutoSchedulingEngine {
     } catch (error) {
       console.warn('Failed to load auto-scheduling data:', error);
     }
+  }
+
+  /**
+   * Pulisce i suggerimenti dismissi molto vecchi (più di 7 giorni)
+   */
+  private cleanupOldDismissedSuggestions(): void {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    this.suggestions = this.suggestions.filter(suggestion => {
+      if (suggestion.status === 'dismissed' && suggestion.dismissedAt) {
+        const dismissedDate = new Date(suggestion.dismissedAt);
+        return dismissedDate > sevenDaysAgo; // Keep only if dismissed less than 7 days ago
+      }
+      return true; // Keep all non-dismissed suggestions
+    });
   }
 
   private saveSuggestions(): void {
