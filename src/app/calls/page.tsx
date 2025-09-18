@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Phone, Calendar, Clock, Star, User, CheckCircle, XCircle, Edit3, MoreVertical, Pause, Trash2, RotateCcw, Play, History, Activity, Square, CheckSquare, ChevronDown, Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Download, Bell } from 'lucide-react';
+import { Phone, Calendar, Clock, Star, User, CheckCircle, XCircle, Edit3, MoreVertical, Pause, Trash2, RotateCcw, Play, History, Activity, Square, CheckSquare, ChevronDown, Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Download, Bell, Copy } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -82,6 +82,10 @@ export default function CallsPage() {
   
   // Advanced filters state
   const [advancedFilters, setAdvancedFilters] = useState<CallFilters>({});
+
+  // Duplicate detection state
+  const [duplicates, setDuplicates] = useState<Call[][]>([]);
+  const [showDuplicates, setShowDuplicates] = useState(false);
   
   // Validation for call scheduling
 
@@ -627,6 +631,72 @@ export default function CallsPage() {
 
   const getSelectedCallsData = () => {
     return calls.filter(call => selectedCalls.has(call.id));
+  };
+
+  // Duplicate detection function
+  const detectDuplicates = () => {
+    const duplicateGroups: Call[][] = [];
+    const checkedCalls = new Set<string>();
+
+    calls.forEach(call => {
+      if (checkedCalls.has(call.id)) return;
+
+      const potentialDuplicates = calls.filter(otherCall => {
+        if (otherCall.id === call.id || checkedCalls.has(otherCall.id)) return false;
+
+        // Same employee
+        if (otherCall.employeeId !== call.employeeId) return false;
+
+        // Same or very close scheduled date (within 24 hours)
+        const date1 = new Date(call.dataSchedulata);
+        const date2 = new Date(otherCall.dataSchedulata);
+        const timeDiff = Math.abs(date1.getTime() - date2.getTime());
+        const hoursDiff = timeDiff / (1000 * 60 * 60);
+
+        if (hoursDiff > 24) return false;
+
+        // Similar status or both scheduled/completed
+        const similarStatus = otherCall.status === call.status ||
+          (call.status === 'scheduled' && otherCall.status === 'rescheduled') ||
+          (call.status === 'rescheduled' && otherCall.status === 'scheduled');
+
+        return similarStatus;
+      });
+
+      if (potentialDuplicates.length > 0) {
+        const duplicateGroup = [call, ...potentialDuplicates];
+        duplicateGroups.push(duplicateGroup);
+
+        // Mark all calls in this group as checked
+        duplicateGroup.forEach(dupCall => checkedCalls.add(dupCall.id));
+      }
+    });
+
+    setDuplicates(duplicateGroups);
+    setShowDuplicates(true);
+
+    if (duplicateGroups.length === 0) {
+      toast.success('✅ Nessun duplicato trovato!');
+    } else {
+      toast.warning(`⚠️ Trovati ${duplicateGroups.length} gruppi di call duplicate`);
+    }
+  };
+
+  // Delete duplicate call function
+  const deleteDuplicateCall = async (callId: string) => {
+    const call = calls.find(c => c.id === callId);
+    if (!call) return;
+
+    const employee = employees.find(emp => emp.id === call.employeeId);
+    if (!employee) return;
+
+    const callWithEmployee: CallWithEmployee = { ...call, employee };
+    await handleDeleteCall(callWithEmployee);
+
+    // Refresh duplicates after deletion
+    if (showDuplicates) {
+      setTimeout(() => detectDuplicates(), 100);
+    }
   };
 
   // Bulk Employee Selection for New Calls
@@ -1403,7 +1473,18 @@ export default function CallsPage() {
                   </button>
                 )
               )}
-              
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={detectDuplicates}
+                className="scale-hover"
+                title="Rileva call duplicate"
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                Rileva Duplicati
+              </Button>
+
               <Button
                 variant="outline"
                 size="sm"
@@ -1484,6 +1565,69 @@ export default function CallsPage() {
               </div>
             )}
           </div>
+
+          {/* Duplicate Detection Results */}
+          {showDuplicates && (
+            <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-yellow-800 flex items-center">
+                  <Copy className="h-4 w-4 mr-2" />
+                  Call Duplicate Rilevate ({duplicates.length} gruppi)
+                </h4>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowDuplicates(false)}
+                  className="text-yellow-600 hover:text-yellow-800"
+                >
+                  <XCircle className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {duplicates.length === 0 ? (
+                <p className="text-yellow-700">✅ Nessun duplicato trovato</p>
+              ) : (
+                <div className="space-y-3">
+                  {duplicates.map((group, groupIndex) => (
+                    <div key={groupIndex} className="bg-white border border-yellow-200 rounded-md p-3">
+                      <h5 className="font-medium text-gray-800 mb-2">
+                        Gruppo {groupIndex + 1} - {employees.find(emp => emp.id === group[0].employeeId)?.nome || 'Unknown'} {employees.find(emp => emp.id === group[0].employeeId)?.cognome || ''}
+                      </h5>
+                      <div className="grid gap-2">
+                        {group.map((call, callIndex) => (
+                          <div key={call.id} className="flex items-center justify-between bg-gray-50 p-2 rounded text-sm">
+                            <div className="flex items-center space-x-3">
+                              <span className="font-mono text-xs bg-gray-200 px-2 py-1 rounded">
+                                {callIndex + 1}
+                              </span>
+                              <span>{formatDateTime(call.dataSchedulata)}</span>
+                              <span className={`px-2 py-1 rounded-full text-xs ${getCallStatusColor(call.status)}`}>
+                                {call.status}
+                              </span>
+                              {call.note && (
+                                <span className="text-gray-500 truncate max-w-[200px]">
+                                  📝 {call.note}
+                                </span>
+                              )}
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => deleteDuplicateCall(call.id)}
+                              className="text-red-600 hover:text-red-800"
+                              title="Elimina questa call duplicata"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Header di ordinamento */}
           <div className="flex items-center gap-4 mt-4 p-2 bg-gray-50 rounded-lg">

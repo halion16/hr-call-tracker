@@ -141,10 +141,13 @@ export default function EmployeesPage() {
       
       LocalStorage.setEmployees(updatedEmployees);
       setEmployees(updatedEmployees);
-      
+
       const now = new Date();
       setLastSync(now);
       localStorage.setItem('hr-tracker-last-sync', now.toISOString());
+
+      // NOTA: Non rigeneriamo automaticamente i suggerimenti AI per preservare quelli dismissi
+      console.log('ℹ️ Sincronizzazione dipendenti completata. I suggerimenti AI non vengono rigenerati automaticamente per preservare le decisioni dell\'utente.');
       
       toast.success('Sincronizzazione completata!', {
         description: `${newCount} nuovi dipendenti, ${updatedCount} aggiornamenti, ${removedCount} rimossi (inattivi)`

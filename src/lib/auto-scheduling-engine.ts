@@ -359,11 +359,11 @@ export class AutoSchedulingEngine {
         const now = new Date();
         const hoursSinceDismissed = (now.getTime() - dismissedDate.getTime()) / (1000 * 60 * 60);
 
-        if (hoursSinceDismissed < 24) {
+        if (hoursSinceDismissed < 168) { // 7 days = 168 hours
           // Skip this suggestion - too recent dismissal
           continue;
         } else {
-          // More than 24 hours since dismissal, allow new suggestion
+          // More than 7 days since dismissal, allow new suggestion
           this.suggestions.push(newSuggestion);
         }
       } else {
@@ -424,6 +424,13 @@ export class AutoSchedulingEngine {
    */
   getPendingSuggestions(): SchedulingSuggestion[] {
     return this.suggestions.filter(s => s.status === 'pending');
+  }
+
+  /**
+   * Ottieni tutti i suggerimenti (inclusi quelli dismissi)
+   */
+  getAllSuggestions(): SchedulingSuggestion[] {
+    return [...this.suggestions];
   }
 
   /**

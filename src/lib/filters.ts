@@ -220,9 +220,13 @@ export class FilterManager {
       filtered = filtered.filter(call => {
         const employee = employees.find(emp => emp.id === call.employeeId);
         const employeeName = employee ? `${employee.nome} ${employee.cognome}`.toLowerCase() : '';
+        const employeePosition = employee ? employee.posizione.toLowerCase() : '';
+        const employeeDepartment = employee ? employee.dipartimento.toLowerCase() : '';
         const notes = call.note?.toLowerCase() || '';
-        
-        return employeeName.includes(searchTerm) || 
+
+        return employeeName.includes(searchTerm) ||
+               employeePosition.includes(searchTerm) ||
+               employeeDepartment.includes(searchTerm) ||
                notes.includes(searchTerm) ||
                call.id.toLowerCase().includes(searchTerm);
       });

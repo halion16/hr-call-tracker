@@ -140,10 +140,26 @@ export class WorkflowOrchestrator {
   }
 
   /**
-   * Genera suggerimenti di scheduling automatici
+   * Genera suggerimenti di scheduling automatici solo se necessario
    */
   private async generateSchedulingSuggestions(): Promise<void> {
     try {
+      // Check if we have dismissed suggestions in the last hour - if so, skip generation
+      const existingSuggestions = autoSchedulingEngine.getAllSuggestions();
+      const now = new Date();
+
+      const recentlyDismissed = existingSuggestions.some(s => {
+        if (s.status !== 'dismissed' || !s.dismissedAt) return false;
+        const dismissedDate = new Date(s.dismissedAt);
+        const hoursSinceDismissed = (now.getTime() - dismissedDate.getTime()) / (1000 * 60 * 60);
+        return hoursSinceDismissed < 1; // Skip if any suggestion was dismissed in the last hour
+      });
+
+      if (recentlyDismissed) {
+        console.log('⏸️ Skipping suggestion generation - recent dismissals detected');
+        return;
+      }
+
       const suggestions = await autoSchedulingEngine.generateSchedulingSuggestions();
       
       if (suggestions.length > 0) {
