@@ -731,6 +731,61 @@ export default function CallsPage() {
     return conflictCheck.hasConflicts;
   };
 
+  // Get enhanced call status information for rescheduled calls
+  const getEnhancedCallStatus = (call: Call) => {
+    const baseStatus = {
+      status: call.status,
+      label: {
+        'scheduled': 'Programmata',
+        'completed': 'Completata',
+        'cancelled': 'Annullata',
+        'suspended': 'Sospesa',
+        'rescheduled': 'Riprogrammata'
+      }[call.status] || call.status,
+      colorClass: getCallStatusColor(call.status),
+      tooltip: ''
+    };
+
+    // If not rescheduled, return basic info
+    if (call.status !== 'rescheduled' || !call.modifications || call.modifications.length === 0) {
+      return baseStatus;
+    }
+
+    // Find the reschedule modifications
+    const reschedules = call.modifications
+      .filter(mod => mod.action === 'rescheduled')
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    if (reschedules.length === 0) {
+      return baseStatus;
+    }
+
+    // Get original and current dates
+    const firstReschedule = reschedules[0];
+    const originalDate = firstReschedule.previousData?.dataSchedulata;
+    const currentDate = call.dataSchedulata;
+    const rescheduleCount = call.rescheduledCount || reschedules.length;
+
+    // Enhanced label and tooltip
+    const enhancedLabel = rescheduleCount > 1
+      ? `Riprogrammata (${rescheduleCount}x)`
+      : 'Riprogrammata';
+
+    const tooltip = originalDate
+      ? `Originale: ${formatDateTime(originalDate)}\nAttuale: ${formatDateTime(currentDate)}\nRiprogrammazioni: ${rescheduleCount}`
+      : `Riprogrammata ${rescheduleCount} volte`;
+
+    return {
+      ...baseStatus,
+      label: enhancedLabel,
+      tooltip,
+      hasRescheduleInfo: true,
+      originalDate,
+      currentDate,
+      rescheduleCount
+    };
+  };
+
   // Detect existing conflicts function
   const detectExistingConflicts = () => {
     const conflictAnalysis = CallConflictDetector.detectAllExistingConflicts();
@@ -1948,13 +2003,27 @@ export default function CallsPage() {
                     </div>
                     
                     <div className="flex items-center space-x-2">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCallStatusColor(call.status)}`}>
-                        {call.status === 'scheduled' && 'Programmata'}
-                        {call.status === 'completed' && 'Completata'}
-                        {call.status === 'cancelled' && 'Annullata'}
-                        {call.status === 'suspended' && 'Sospesa'}
-                        {call.status === 'rescheduled' && 'Riprogrammata'}
-                      </span>
+                      {(() => {
+                        const statusInfo = getEnhancedCallStatus(call);
+                        return (
+                          <div className="flex flex-col items-end">
+                            <span
+                              className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.colorClass} ${statusInfo.hasRescheduleInfo ? 'cursor-help' : ''}`}
+                              title={statusInfo.tooltip}
+                            >
+                              {statusInfo.label}
+                            </span>
+                            {statusInfo.hasRescheduleInfo && statusInfo.originalDate && (
+                              <div className="mt-1 text-xs text-gray-500">
+                                <div className="text-right">
+                                  <span className="block">📅 Orig: {new Date(statusInfo.originalDate).toLocaleDateString('it-IT')}</span>
+                                  <span className="block">🔄 Nuova: {new Date(statusInfo.currentDate).toLocaleDateString('it-IT')}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       
                       {!bulkMode && call.status === 'scheduled' && (
                         <Button 
