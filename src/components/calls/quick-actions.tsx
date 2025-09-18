@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -40,8 +40,9 @@ interface DuplicateOptions {
 export function QuickActions({ call, employee, onActionComplete }: QuickActionsProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
-  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [showQuickRescheduleModal, setShowQuickRescheduleModal] = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   
   const [duplicateOptions, setDuplicateOptions] = useState<DuplicateOptions>({
     employees: [call.employeeId],
@@ -55,6 +56,22 @@ export function QuickActions({ call, employee, onActionComplete }: QuickActionsP
   const [followUpNote, setFollowUpNote] = useState('');
 
   const employees = LocalStorage.getEmployees();
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [isOpen]);
 
   const handleDuplicateCall = async () => {
     try {
@@ -133,6 +150,47 @@ export function QuickActions({ call, employee, onActionComplete }: QuickActionsP
     }
   };
 
+  const handleCustomReschedule = async () => {
+    try {
+      if (!rescheduleDate) {
+        toast.error('Seleziona una data per la riprogrammazione');
+        return;
+      }
+
+      const selectedDate = new Date(rescheduleDate);
+      const now = new Date();
+
+      if (selectedDate < now) {
+        toast.error('Non puoi riprogrammare una call nel passato');
+        return;
+      }
+
+      const updatedCall = {
+        dataSchedulata: rescheduleDate,
+        status: 'scheduled' as const,
+        lastSyncedAt: new Date().toISOString()
+      };
+
+      LocalStorage.updateCall(call.id, updatedCall);
+      CallTrackingService.trackModification(call.id, 'rescheduled', call, updatedCall);
+
+      // Re-create notifications
+      await NotificationService.createCallReminder(call.id);
+      await NotificationService.createCallEscalation(call.id);
+
+      toast.success('Call riprogrammata', {
+        description: `Nuova data: ${formatDateTime(rescheduleDate)}`
+      });
+
+      setShowQuickRescheduleModal(false);
+      setIsOpen(false);
+      onActionComplete?.();
+    } catch (error) {
+      console.error('Error custom rescheduling:', error);
+      toast.error('Errore durante la riprogrammazione');
+    }
+  };
+
   const handleCreateFollowUp = async () => {
     try {
       if (!followUpDate) {
@@ -173,18 +231,25 @@ export function QuickActions({ call, employee, onActionComplete }: QuickActionsP
   };
 
   return (
-    <div className="relative">
+    <div className="relative" ref={dropdownRef}>
       <Button
         size="sm"
         variant="outline"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
         className="h-8 w-8 p-0"
       >
         <MoreHorizontal className="h-4 w-4" />
       </Button>
 
       {isOpen && (
-        <div className="absolute right-0 top-10 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+        <div
+          className="absolute right-0 top-10 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-40 backdrop-blur-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="p-2 border-b border-gray-100">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-medium text-gray-900">Azioni Rapide</h4>
@@ -230,7 +295,12 @@ export function QuickActions({ call, employee, onActionComplete }: QuickActionsP
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => setShowRescheduleModal(true)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowQuickRescheduleModal(true);
+                    setIsOpen(false);
+                  }}
                   className="w-full justify-start text-xs"
                 >
                   <Calendar className="h-3 w-3 mr-2" />
@@ -244,7 +314,10 @@ export function QuickActions({ call, employee, onActionComplete }: QuickActionsP
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setShowDuplicateModal(true)}
+                onClick={() => {
+                  setShowDuplicateModal(true);
+                  setIsOpen(false);
+                }}
                 className="w-full justify-start text-xs"
               >
                 <Copy className="h-3 w-3 mr-2" />
@@ -257,7 +330,10 @@ export function QuickActions({ call, employee, onActionComplete }: QuickActionsP
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setShowFollowUpModal(true)}
+                onClick={() => {
+                  setShowFollowUpModal(true);
+                  setIsOpen(false);
+                }}
                 className="w-full justify-start text-xs"
               >
                 <ArrowRight className="h-3 w-3 mr-2" />
@@ -270,7 +346,7 @@ export function QuickActions({ call, employee, onActionComplete }: QuickActionsP
 
       {/* Duplicate Modal */}
       {showDuplicateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
           <Card className="w-96 max-h-[90vh] overflow-y-auto">
             <CardHeader>
               <CardTitle>Duplica Call</CardTitle>
@@ -383,9 +459,56 @@ export function QuickActions({ call, employee, onActionComplete }: QuickActionsP
         </div>
       )}
 
+      {/* Custom Reschedule Modal */}
+      {showQuickRescheduleModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowQuickRescheduleModal(false);
+          }}
+        >
+          <Card
+            className="w-96"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardHeader>
+              <CardTitle>Riprogramma Call</CardTitle>
+              <CardDescription>
+                Seleziona nuova data e ora per {employee.nome} {employee.cognome}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="reschedule-date">Nuova data e ora</Label>
+                <Input
+                  id="reschedule-date"
+                  type="datetime-local"
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowQuickRescheduleModal(false)}
+                >
+                  Annulla
+                </Button>
+                <Button onClick={handleCustomReschedule}>
+                  Riprogramma
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Follow-up Modal */}
       {showFollowUpModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
           <Card className="w-96">
             <CardHeader>
               <CardTitle>Crea Follow-up</CardTitle>
