@@ -550,22 +550,38 @@ export default function CallsPage() {
   };
 
   const openRescheduleModal = (call: CallWithEmployee) => {
+    console.log('🔄 Opening reschedule modal for call:', call.id, call);
     setSelectedCall(call);
+
+    // Format the date properly for datetime-local input
+    const currentDate = new Date(call.dataSchedulata);
+    const formattedDate = new Date(currentDate.getTime() - currentDate.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+
     setRescheduleData({
-      dataSchedulata: call.dataSchedulata,
+      dataSchedulata: formattedDate,
       note: call.note || ''
     });
     setShowRescheduleModal(true);
     setOpenDropdown(null);
+    console.log('✅ Reschedule modal should be visible now');
   };
 
   const handleReschedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCall) return;
+    console.log('🔄 Handling reschedule submit:', rescheduleData);
+
+    if (!selectedCall) {
+      console.error('❌ No selected call for reschedule');
+      return;
+    }
 
     const selectedDate = new Date(rescheduleData.dataSchedulata);
     const now = new Date();
-    
+
+    console.log('📅 Selected date:', selectedDate, 'Current date:', now);
+
     if (selectedDate < now) {
       toast.error('Non puoi riprogrammare una call nel passato');
       return;
@@ -733,10 +749,19 @@ export default function CallsPage() {
 
   // Get enhanced call status information for rescheduled calls
   const getEnhancedCallStatus = (call: Call) => {
+    // First check if there are reschedule modifications regardless of status
+    const reschedules = call.modifications
+      ? call.modifications
+          .filter(mod => mod.action === 'rescheduled')
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      : [];
+
+    const hasReschedules = reschedules.length > 0;
+
     const baseStatus = {
       status: call.status,
       label: {
-        'scheduled': 'Programmata',
+        'scheduled': hasReschedules ? 'Riprogrammata' : 'Programmata',
         'completed': 'Completata',
         'cancelled': 'Annullata',
         'suspended': 'Sospesa',
@@ -746,17 +771,8 @@ export default function CallsPage() {
       tooltip: ''
     };
 
-    // If not rescheduled, return basic info
-    if (call.status !== 'rescheduled' || !call.modifications || call.modifications.length === 0) {
-      return baseStatus;
-    }
-
-    // Find the reschedule modifications
-    const reschedules = call.modifications
-      .filter(mod => mod.action === 'rescheduled')
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-    if (reschedules.length === 0) {
+    // If no reschedules, return basic info
+    if (!hasReschedules) {
       return baseStatus;
     }
 
@@ -782,7 +798,8 @@ export default function CallsPage() {
       hasRescheduleInfo: true,
       originalDate,
       currentDate,
-      rescheduleCount
+      rescheduleCount,
+      colorClass: 'bg-orange-100 text-orange-800' // Distinct color for rescheduled calls
     };
   };
 
@@ -1457,8 +1474,20 @@ export default function CallsPage() {
 
       {/* Reschedule Modal */}
       {showRescheduleModal && selectedCall && (
-        <Card>
-          <CardHeader>
+        <>
+          {/* Modal Backdrop */}
+          <div
+            className="fixed inset-0 bg-black bg-opacity-50 z-40"
+            onClick={() => {
+              setShowRescheduleModal(false);
+              setSelectedCall(null);
+              setRescheduleData({ dataSchedulata: '', note: '' });
+            }}
+          />
+
+          {/* Modal Content */}
+          <Card className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 w-[600px] max-w-[90vw] bg-white shadow-2xl border-2">
+            <CardHeader>
             <CardTitle>Riprogramma Call</CardTitle>
             <CardDescription>
               Modifica data e ora della call con {' '}
@@ -1484,15 +1513,16 @@ export default function CallsPage() {
                   value={rescheduleData.note}
                   onChange={(e) => setRescheduleData({...rescheduleData, note: e.target.value})}
                   placeholder="Motivo della riprogrammazione, nuovi argomenti da discutere..."
-                  rows={3}
+                  rows={6}
+                  className="min-h-[120px]"
                 />
               </div>
               
               <div className="flex gap-2">
                 <Button type="submit">Riprogramma Call</Button>
-                <Button 
-                  type="button" 
-                  variant="outline" 
+                <Button
+                  type="button"
+                  variant="outline"
                   onClick={() => {
                     setShowRescheduleModal(false);
                     setSelectedCall(null);
@@ -1505,6 +1535,7 @@ export default function CallsPage() {
             </form>
           </CardContent>
         </Card>
+        </>
       )}
 
       {/* Recent Activity */}
