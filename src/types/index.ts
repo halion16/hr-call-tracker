@@ -66,6 +66,7 @@ export interface CompanyApiEmployee {
   hireDate: string;
   phone?: string;
   status: 'active' | 'inactive';
+  contractExpiryDate?: string;
 }
 
 export interface CallFormData {

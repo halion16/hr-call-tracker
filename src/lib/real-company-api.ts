@@ -246,9 +246,16 @@ export class RealCompanyApiService {
       }
 
       const responseText = await response.text();
-      console.log('📄 Risposta PeopleExpressGetAll:', responseText.substring(0, 500) + '...');
-      
+      console.log('📄 Risposta PeopleExpressGetAll (primi 500 char):', responseText.substring(0, 500) + '...');
+
       const data = JSON.parse(responseText);
+
+      // 🔍 LOG COMPLETO: Struttura della risposta EcosAgile
+      console.log('🗂️ STRUTTURA COMPLETA RISPOSTA EcosAgile:', {
+        'Top level keys': Object.keys(data),
+        'ECOSAGILE_TABLE_DATA keys': data.ECOSAGILE_TABLE_DATA ? Object.keys(data.ECOSAGILE_TABLE_DATA) : 'N/A',
+        'Dati completi': data
+      });
       
       // Controlla errori EcosAgile
       if (data.ECOSAGILE_TABLE_DATA && data.ECOSAGILE_TABLE_DATA.ECOSAGILE_ERROR_MESSAGE) {
@@ -272,12 +279,21 @@ export class RealCompanyApiService {
       
       console.log(`📋 Trovati ${employees.length} dipendenti da EcosAgile`);
 
+      // 📊 TABELLA DATI COMPLETA PER VERIFICA
+      console.log('📊 TABELLA DATI ECOSAGILE COMPLETA:');
+      console.table(employees);
+
+      // SALVA DATI GREZZI PER FACILE ACCESSO
+      localStorage.setItem('ecosagile-raw-data', JSON.stringify(employees, null, 2));
+      console.log('💾 Dati grezzi salvati in localStorage con chiave: "ecosagile-raw-data"');
+
       // Converte dal formato EcosAgile al formato standard
       const mappedEmployees = employees
         .filter(emp => !emp.Delete || emp.Delete === '0') // Solo dipendenti non cancellati
         .map(emp => this.mapEcosAgileToStandardFormat(emp));
-      
+
       console.log(`✅ Importati ${mappedEmployees.length} dipendenti da EcosAgile`);
+
       return mappedEmployees;
 
     } catch (error: any) {
@@ -289,19 +305,109 @@ export class RealCompanyApiService {
     }
   }
 
+  // Converte date italiane (DD/MM/YYYY) in formato ISO
+  private static parseItalianDate(dateString: string): string {
+    if (!dateString || dateString.trim() === '') return '';
+
+    try {
+      // Formato EcosAgile: "30/06/2026 00:00:00" o "30/06/2026"
+      const cleanDate = dateString.split(' ')[0]; // Rimuovi l'orario
+      const parts = cleanDate.split('/');
+
+      if (parts.length === 3) {
+        const [day, month, year] = parts;
+        // Converte in formato ISO: YYYY-MM-DD
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+    } catch (error) {
+      console.warn('❌ Errore parsing data italiana:', dateString, error);
+    }
+
+    return '';
+  }
+
   // Funzione per mappare la risposta EcosAgile al formato standard
   private static mapEcosAgileToStandardFormat(ecosEmployee: any): CompanyApiEmployee {
-    return {
+    // 🔍 LOG DETTAGLIATO: Mostra tutti i campi ricevuti dall'API EcosAgile
+    console.log('📋 DATI RAW EcosAgile per dipendente:', {
+      'Tutti i campi ricevuti': Object.keys(ecosEmployee),
+      'ID Fields': {
+        EmplID: ecosEmployee.EmplID,
+        EmplCode: ecosEmployee.EmplCode,
+        ID: ecosEmployee.ID
+      },
+      'Name Fields': {
+        NameFirst: ecosEmployee.NameFirst,
+        Nome: ecosEmployee.Nome,
+        FirstName: ecosEmployee.FirstName,
+        NameLast: ecosEmployee.NameLast,
+        Cognome: ecosEmployee.Cognome,
+        LastName: ecosEmployee.LastName
+      },
+      'Contact Fields': {
+        EMail: ecosEmployee.EMail,
+        Email: ecosEmployee.Email,
+        email: ecosEmployee.email,
+        Phone: ecosEmployee.Phone,
+        Telefono: ecosEmployee.Telefono,
+        PhoneNumber: ecosEmployee.PhoneNumber
+      },
+      'Job Fields': {
+        Position: ecosEmployee.Position,
+        JobTitle: ecosEmployee.JobTitle,
+        Posizione: ecosEmployee.Posizione,
+        Department: ecosEmployee.Department,
+        Dipartimento: ecosEmployee.Dipartimento
+      },
+      'DATE FIELDS - IMPORTANTE per il problema': {
+        HireDate: ecosEmployee.HireDate,
+        DataAssunzione: ecosEmployee.DataAssunzione,
+        StartDate: ecosEmployee.StartDate,
+        EmploymentDate: ecosEmployee.EmploymentDate,
+        // Controlla anche altri possibili nomi di campo data
+        Date: ecosEmployee.Date,
+        DateHired: ecosEmployee.DateHired,
+        JoinDate: ecosEmployee.JoinDate,
+        ContractStartDate: ecosEmployee.ContractStartDate
+      },
+      'Status Fields': {
+        Delete: ecosEmployee.Delete,
+        Active: ecosEmployee.Active,
+        Status: ecosEmployee.Status,
+        PersonStatusCode: ecosEmployee.PersonStatusCode
+      },
+      'Altri campi disponibili': ecosEmployee
+    });
+
+    // Converte le date dal formato italiano
+    const contractEndDate = this.parseItalianDate(ecosEmployee.ContractEndDate);
+    const hireDate = this.parseItalianDate(ecosEmployee.HireDate);
+    const birthDate = this.parseItalianDate(ecosEmployee.BirthDate);
+
+    console.log('🗓️ CONVERSIONE DATE:', {
+      'ContractEndDate originale': ecosEmployee.ContractEndDate,
+      'ContractEndDate convertita': contractEndDate,
+      'HireDate originale': ecosEmployee.HireDate,
+      'HireDate convertita': hireDate,
+      'BirthDate originale': ecosEmployee.BirthDate,
+      'BirthDate convertita': birthDate
+    });
+
+    const mappedEmployee = {
       employeeId: ecosEmployee.EmplID || ecosEmployee.EmplCode || ecosEmployee.ID || 'N/A',
       firstName: ecosEmployee.NameFirst || ecosEmployee.Nome || ecosEmployee.FirstName || 'N/A',
       lastName: ecosEmployee.NameLast || ecosEmployee.Cognome || ecosEmployee.LastName || 'N/A',
       email: ecosEmployee.EMail || ecosEmployee.Email || ecosEmployee.email || '',
       position: ecosEmployee.Position || ecosEmployee.JobTitle || ecosEmployee.Posizione || 'Non specificato',
       department: ecosEmployee.Department || ecosEmployee.Dipartimento || 'Non specificato',
-      hireDate: ecosEmployee.HireDate || ecosEmployee.DataAssunzione || new Date().toISOString().split('T')[0],
+      hireDate: hireDate || new Date().toISOString().split('T')[0], // Ora uso HireDate correttamente
       phone: ecosEmployee.Phone || ecosEmployee.Telefono || ecosEmployee.PhoneNumber || '',
-      status: (!ecosEmployee.Delete || ecosEmployee.Delete === '0') ? 'active' : 'inactive'
+      status: (!ecosEmployee.Delete || ecosEmployee.Delete === '0') ? 'active' : 'inactive',
+      contractExpiryDate: contractEndDate
     };
+
+    console.log('✅ MAPPATO a formato standard:', mappedEmployee);
+    return mappedEmployee;
   }
 
   // Funzione per mappare la risposta di API generiche al formato standard
@@ -335,7 +441,8 @@ export class RealCompanyApiService {
       dipartimento: companyEmployee.department,
       dataAssunzione: companyEmployee.hireDate,
       telefono: companyEmployee.phone,
-      isActive: companyEmployee.status === 'active'
+      isActive: companyEmployee.status === 'active',
+      contractExpiryDate: companyEmployee.contractExpiryDate
     };
   }
 
@@ -344,6 +451,139 @@ export class RealCompanyApiService {
     const current = this.getCredentials();
     const updated = { ...current, ...credentials };
     localStorage.setItem('hr-tracker-api-settings', JSON.stringify(updated));
+  }
+
+  // 📊 Funzione per salvare un report dettagliato dei dati EcosAgile
+  private static saveDataAnalysisReport(rawEmployees: any[], mappedEmployees: CompanyApiEmployee[], fullResponse: any): void {
+    try {
+      console.log('🔄 Inizio creazione report analisi...', { rawCount: rawEmployees.length, mappedCount: mappedEmployees.length });
+
+      // Crea un report semplificato per evitare errori di parsing
+      const report = {
+        timestamp: new Date().toISOString(),
+        totalEmployees: rawEmployees.length,
+        mappedEmployees: mappedEmployees.length,
+        availableFields: rawEmployees.length > 0 ? Object.keys(rawEmployees[0]) : [],
+        sampleRawEmployee: rawEmployees.length > 0 ? rawEmployees[0] : null,
+        sampleMappedEmployee: mappedEmployees.length > 0 ? mappedEmployees[0] : null,
+        rawDataSample: rawEmployees.slice(0, 5), // Prime 5 righe per verifica
+        sampleProblematicDates: this.findProblematicDates(rawEmployees.slice(0, 10)),
+        fullApiResponse: fullResponse
+      };
+
+      // Salva nel localStorage per facile accesso
+      localStorage.setItem('ecosagile-data-analysis', JSON.stringify(report, null, 2));
+
+      // Log il summary per console
+      console.log('📊 REPORT DATI EcosAgile salvato con successo in localStorage!');
+      console.log('📋 SUMMARY REPORT:', {
+        'Dipendenti trovati': rawEmployees.length,
+        'Campi disponibili': report.availableFields,
+        'Campi che contengono "Date"': report.availableFields.filter(f => f.toLowerCase().includes('date')),
+        'Primo dipendente (sample)': rawEmployees[0] || null
+      });
+
+      // Mostra i primi 3 dipendenti per debug
+      if (rawEmployees.length > 0) {
+        console.log('🔍 PRIMI 3 DIPENDENTI (per verifica date):', rawEmployees.slice(0, 3));
+      }
+
+      console.log('✅ Report salvato con chiave: "ecosagile-data-analysis"');
+
+    } catch (error) {
+      console.error('❌ Errore nel salvataggio report:', error);
+
+      // Salvataggio di emergenza semplificato
+      try {
+        const emergencyReport = {
+          timestamp: new Date().toISOString(),
+          totalEmployees: rawEmployees.length,
+          error: error.message,
+          sampleData: rawEmployees.slice(0, 2),
+          availableFields: rawEmployees.length > 0 ? Object.keys(rawEmployees[0]) : []
+        };
+        localStorage.setItem('ecosagile-emergency-report', JSON.stringify(emergencyReport, null, 2));
+        console.log('💾 Report di emergenza salvato con chiave: "ecosagile-emergency-report"');
+      } catch (emergencyError) {
+        console.error('❌ Anche il salvataggio di emergenza è fallito:', emergencyError);
+      }
+    }
+  }
+
+  // Helper per trovare date problematiche
+  private static findProblematicDates(employees: any[]): any {
+    const problematicDates = [];
+
+    employees.forEach((emp, index) => {
+      Object.keys(emp).forEach(field => {
+        if (field.toLowerCase().includes('date') && emp[field]) {
+          const isValid = !isNaN(Date.parse(emp[field]));
+          if (!isValid) {
+            problematicDates.push({
+              employeeIndex: index,
+              field: field,
+              value: emp[field],
+              type: typeof emp[field]
+            });
+          }
+        }
+      });
+    });
+
+    return problematicDates;
+  }
+
+  // Analizza i campi data comuni
+  private static analyzeCommonDateFields(employees: any[]): any {
+    if (employees.length === 0) return {};
+
+    const dateFields = {};
+    const sampleEmployee = employees[0];
+
+    Object.keys(sampleEmployee).forEach(field => {
+      const value = sampleEmployee[field];
+      if (typeof value === 'string' && (
+        field.toLowerCase().includes('date') ||
+        field.toLowerCase().includes('data') ||
+        field.toLowerCase().includes('hire') ||
+        field.toLowerCase().includes('assunzione') ||
+        field.toLowerCase().includes('start') ||
+        field.toLowerCase().includes('employment')
+      )) {
+        dateFields[field] = {
+          sampleValue: value,
+          type: typeof value,
+          appearsInAllEmployees: employees.every(emp => emp[field] !== undefined)
+        };
+      }
+    });
+
+    return dateFields;
+  }
+
+  // 🔧 FUNZIONE HELPER per estrarre dati dal browser
+  static extractDataAnalysis(): any {
+    const data = localStorage.getItem('ecosagile-data-analysis');
+    if (!data) {
+      console.log('❌ Nessun dato di analisi trovato. Esegui prima una sincronizzazione con EcosAgile.');
+      return null;
+    }
+
+    const report = JSON.parse(data);
+    console.log('📊 DATI ANALISI EcosAgile ESTRATTI:');
+    console.log('📋 Per copiare tutti i dati, usa: copy(JSON.parse(localStorage.getItem("ecosagile-data-analysis")))');
+    console.log('🗂️ Report completo:', report);
+
+    // Mostra summary dei problemi date
+    const dateProblems = report.employeeDataAnalysis.filter(emp =>
+      !emp.dateFieldsAnalysis.HireDate.isValid && !emp.dateFieldsAnalysis.DataAssunzione.isValid
+    );
+
+    if (dateProblems.length > 0) {
+      console.log('⚠️ DIPENDENTI CON PROBLEMI DATE:', dateProblems);
+    }
+
+    return report;
   }
 
   // Funzione per forzare il reset ai defaults corretti

@@ -13,24 +13,25 @@ export class DemoDataInitializer {
    */
   static initializeEmployeesWithPerformanceData(): void {
     const existingEmployees = LocalStorage.getEmployees();
-    
-    // Se ci sono già dipendenti, aggiorniamo i loro dati con performance info
+
+    // Se ci sono già dipendenti, aggiorniamo SOLO i campi mancanti senza sovrascrivere dati reali
     if (existingEmployees.length > 0) {
       const updatedEmployees = existingEmployees.map((employee, index) => ({
         ...employee,
-        // Aggiungi dati performance realistici
-        performanceScore: this.getRandomPerformanceScore(index),
-        lastPerformanceReview: this.getRandomPastDate(30, 180),
-        contractExpiryDate: this.getRandomFutureDate(30, 400),
-        riskLevel: this.calculateRiskLevel(index),
-        preferredCallFrequency: this.getRandomFrequency(),
-        lastCallRating: Math.floor(Math.random() * 3) + 3, // 3-5
-        averageCallRating: Math.floor(Math.random() * 2) + 3.5, // 3.5-5
-        totalCalls: Math.floor(Math.random() * 20) + 5 // 5-25
+        // Aggiungi solo i campi mancanti per il workflow, senza sovrascrivere dati esistenti
+        performanceScore: employee.performanceScore ?? this.getRandomPerformanceScore(index),
+        lastPerformanceReview: employee.lastPerformanceReview ?? this.getRandomPastDate(30, 180),
+        // NON sovrascrivere contractExpiryDate se già presente (rispetta contratti indeterminati)
+        contractExpiryDate: employee.contractExpiryDate ?? undefined, // Mantieni undefined per contratti indeterminati
+        riskLevel: employee.riskLevel ?? this.calculateRiskLevel(index),
+        preferredCallFrequency: employee.preferredCallFrequency ?? this.getRandomFrequency(),
+        lastCallRating: employee.lastCallRating ?? Math.floor(Math.random() * 3) + 3,
+        averageCallRating: employee.averageCallRating ?? Math.floor(Math.random() * 2) + 3.5,
+        totalCalls: employee.totalCalls ?? Math.floor(Math.random() * 20) + 5
       })) as Employee[];
 
       LocalStorage.saveEmployees(updatedEmployees);
-      console.log('✅ Updated employees with performance data');
+      console.log('✅ Updated employees with performance data (preserving existing contract data)');
     } else {
       // Crea dipendenti demo se non esistono
       this.createDemoEmployees();
@@ -259,10 +260,40 @@ export class DemoDataInitializer {
    */
   static initializeAllDemoData(): void {
     console.log('🎭 Initializing demo data for Workflow Automation...');
-    
+
+    // First, clean up any incorrectly generated contract dates
+    this.cleanupIncorrectContractData();
+
     this.initializeEmployeesWithPerformanceData();
     this.initializeCompanyEvents();
-    
+
     console.log('✅ Demo data initialization completed');
+  }
+
+  /**
+   * Pulisce dati di contratto generati erroneamente dai dati demo
+   */
+  private static cleanupIncorrectContractData(): void {
+    const employees = LocalStorage.getEmployees();
+    let cleaned = false;
+
+    const cleanedEmployees = employees.map(employee => {
+      // Se il dipendente ha una email aziendale reale (non demo),
+      // e ha un contractExpiryDate che sembra generato random, rimuovilo
+      if (!employee.email.includes('company.com') && employee.contractExpiryDate) {
+        console.log(`🧹 Removing auto-generated contract expiry for real employee: ${employee.nome} ${employee.cognome}`);
+        cleaned = true;
+        return {
+          ...employee,
+          contractExpiryDate: undefined // Rimuovi data scadenza per dipendenti reali
+        };
+      }
+      return employee;
+    });
+
+    if (cleaned) {
+      LocalStorage.saveEmployees(cleanedEmployees);
+      console.log('✅ Cleaned up incorrect contract expiry dates');
+    }
   }
 }
