@@ -245,7 +245,7 @@ export function WorkflowDashboard() {
         {/* AI Suggestions Tab */}
         <TabsContent value="suggestions" className="space-y-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2">
@@ -258,84 +258,87 @@ export function WorkflowDashboard() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               {suggestions.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-gray-500 px-6">
                   <CheckCircle className="h-12 w-12 mx-auto mb-4 text-green-500" />
                   <p>Nessun suggerimento al momento</p>
                   <p className="text-sm">L'AI monitorerà continuamente e suggerirà call quando necessario</p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {suggestions.map((suggestion) => {
-                    const employee = employees.find(e => e.id === suggestion.employeeId);
-                    if (!employee) return null;
+                <div className="h-[500px] overflow-y-auto px-6 pb-4">
+                  <div className="space-y-3">
+                    {suggestions.map((suggestion) => {
+                      const employee = employees.find(e => e.id === suggestion.employeeId);
+                      if (!employee) return null;
 
-                    return (
-                      <Card key={suggestion.id} className="border-l-4 border-l-purple-500">
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h3 className="font-semibold">
-                                  {employee.nome} {employee.cognome}
-                                </h3>
-                                <Badge variant={getPriorityColor(suggestion.priority)}>
-                                  {getPriorityIcon(suggestion.priority)} {suggestion.priority.toUpperCase()}
-                                </Badge>
-                                <div className="text-sm text-gray-500">
-                                  Confidenza: {Math.round(suggestion.confidence * 100)}%
+                      return (
+                        <Card key={suggestion.id} className="border-l-4 border-l-purple-500 shadow-sm">
+                          <CardContent className="p-3">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <h3 className="font-semibold text-sm">
+                                    {employee.nome} {employee.cognome}
+                                  </h3>
+                                  <Badge variant={getPriorityColor(suggestion.priority)} className="text-xs">
+                                    {getPriorityIcon(suggestion.priority)} {suggestion.priority.toUpperCase()}
+                                  </Badge>
+                                  <div className="text-xs text-gray-500">
+                                    Confidenza: {Math.round(suggestion.confidence * 100)}%
+                                  </div>
+                                </div>
+
+                                <div className="text-xs text-gray-600 mb-2 space-y-1">
+                                  <p><strong>Suggerita per:</strong> {new Date(suggestion.suggestedDate).toLocaleDateString('it-IT')}</p>
+                                  <p><strong>Dipartimento:</strong> {employee.dipartimento} - {employee.posizione}</p>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <p className="text-xs font-medium">Motivazioni:</p>
+                                  <ul className="text-xs space-y-0.5">
+                                    {suggestion.reasoning.slice(1).map((reason, index) => (
+                                      <li key={index} className="flex items-start gap-1">
+                                        <span className="text-purple-500 mt-0.5">•</span>
+                                        <span className="leading-tight">{reason}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {suggestion.triggers.map((trigger, index) => (
+                                    <Badge key={index} variant="outline" className="text-xs py-0 px-1">
+                                      {trigger.type.replace('_', ' ')}
+                                    </Badge>
+                                  ))}
                                 </div>
                               </div>
-                              
-                              <div className="text-sm text-gray-600 mb-3">
-                                <p><strong>Suggerita per:</strong> {new Date(suggestion.suggestedDate).toLocaleDateString('it-IT')}</p>
-                                <p><strong>Dipartimento:</strong> {employee.dipartimento} - {employee.posizione}</p>
-                              </div>
 
-                              <div className="space-y-2">
-                                <p className="text-sm font-medium">Motivazioni:</p>
-                                <ul className="text-sm space-y-1">
-                                  {suggestion.reasoning.slice(1).map((reason, index) => (
-                                    <li key={index} className="flex items-start gap-2">
-                                      <span className="text-purple-500 mt-0.5">•</span>
-                                      {reason}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-
-                              <div className="mt-3 flex flex-wrap gap-1">
-                                {suggestion.triggers.map((trigger, index) => (
-                                  <Badge key={index} variant="outline" className="text-xs">
-                                    {trigger.type.replace('_', ' ')}
-                                  </Badge>
-                                ))}
+                              <div className="flex flex-col gap-1.5 ml-3">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleAcceptSuggestion(suggestion.id)}
+                                  className="bg-green-600 hover:bg-green-700 h-7 px-3 text-xs"
+                                >
+                                  <CheckCircle className="w-3 h-3 mr-1" />
+                                  Accetta
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDismissSuggestion(suggestion.id)}
+                                  className="h-7 px-3 text-xs"
+                                >
+                                  Rifiuta
+                                </Button>
                               </div>
                             </div>
-
-                            <div className="flex flex-col gap-2 ml-4">
-                              <Button 
-                                size="sm" 
-                                onClick={() => handleAcceptSuggestion(suggestion.id)}
-                                className="bg-green-600 hover:bg-green-700"
-                              >
-                                <CheckCircle className="w-4 h-4 mr-1" />
-                                Accetta
-                              </Button>
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => handleDismissSuggestion(suggestion.id)}
-                              >
-                                Rifiuta
-                              </Button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </CardContent>
