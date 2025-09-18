@@ -38,6 +38,7 @@ export interface Call {
   dataSchedulata: string;
   dataCompletata?: string;
   durata?: number;
+  priorita?: 'low' | 'medium' | 'high' | 'urgent';
   note?: string;
   rating?: number;
   status: 'scheduled' | 'completed' | 'cancelled' | 'suspended' | 'rescheduled';

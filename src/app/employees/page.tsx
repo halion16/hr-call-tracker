@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LocalStorage } from '@/lib/storage';
 import { RealCompanyApiService } from '@/lib/real-company-api';
 import { NotificationService } from '@/lib/notification-service';
@@ -61,6 +62,24 @@ export default function EmployeesPage() {
     dataSchedulata: {
       value: '',
       rules: [commonValidationRules.dateTime]
+    },
+    durata: {
+      value: '30',
+      rules: [(value) => {
+        const num = parseInt(value);
+        if (isNaN(num) || num < 5) return 'Durata minima 5 minuti';
+        if (num > 240) return 'Durata massima 240 minuti';
+        return null;
+      }]
+    },
+    priorita: {
+      value: 'medium',
+      rules: [(value) => {
+        if (!['low', 'medium', 'high', 'urgent'].includes(value)) {
+          return 'Priorità non valida';
+        }
+        return null;
+      }]
     },
     note: {
       value: '',
@@ -195,6 +214,8 @@ export default function EmployeesPage() {
         id: generateId(),
         employeeId: selectedEmployee.id,
         dataSchedulata: callFormValidation.formState.dataSchedulata.value,
+        durata: parseInt(callFormValidation.formState.durata.value) || 30,
+        priorita: callFormValidation.formState.priorita.value as 'low' | 'medium' | 'high' | 'urgent',
         note: callFormValidation.formState.note.value,
         status: 'scheduled'
       };
@@ -1078,7 +1099,50 @@ export default function EmployeesPage() {
                   </p>
                 )}
               </div>
-              
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Durata (minuti)</label>
+                <Input
+                  type="number"
+                  min="5"
+                  max="240"
+                  {...callFormValidation.getFieldProps('durata')}
+                  placeholder="30"
+                  className={callFormValidation.getFieldProps('durata').hasError ? 'border-red-500' : ''}
+                />
+                {callFormValidation.getFieldProps('durata').error && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {callFormValidation.getFieldProps('durata').error}
+                  </p>
+                )}
+                <p className="text-gray-500 text-xs mt-1">
+                  Durata prevista: da 5 a 240 minuti
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Priorità</label>
+                <Select
+                  value={callFormValidation.formState.priorita.value}
+                  onValueChange={(value) => callFormValidation.updateField('priorita', value)}
+                >
+                  <SelectTrigger className={callFormValidation.getFieldProps('priorita').hasError ? 'border-red-500' : ''}>
+                    <SelectValue placeholder="Seleziona priorità" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">🟢 Bassa</SelectItem>
+                    <SelectItem value="medium">🟡 Media</SelectItem>
+                    <SelectItem value="high">🟠 Alta</SelectItem>
+                    <SelectItem value="urgent">🔴 Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+                {callFormValidation.getFieldProps('priorita').error && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {callFormValidation.getFieldProps('priorita').error}
+                  </p>
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-medium mb-2">Note (opzionale)</label>
                 <Textarea
