@@ -25,6 +25,7 @@ import { BulkQuickActions } from '@/components/calls/bulk-quick-actions';
 import { TemplateSelector } from '@/components/templates/template-selector';
 import { callTemplatesService, CallTemplate } from '@/lib/call-templates-service';
 import { autocompleteService } from '@/lib/autocomplete-service';
+import { CallConflictDetector } from '@/lib/call-conflict-detector';
 
 interface CallWithEmployee extends Call {
   employee: Employee;
@@ -86,6 +87,10 @@ export default function CallsPage() {
   // Duplicate detection state
   const [duplicates, setDuplicates] = useState<Call[][]>([]);
   const [showDuplicates, setShowDuplicates] = useState(false);
+
+  // Conflict detection state
+  const [conflicts, setConflicts] = useState<Call[][]>([]);
+  const [showConflicts, setShowConflicts] = useState(false);
   
   // Validation for call scheduling
 
@@ -181,20 +186,58 @@ export default function CallsPage() {
     try {
       const createdCalls: Call[] = [];
       const calendarEvents: string[] = [];
-      
+
+      // Check for conflicts before creating any calls
+      const requestedDateTime = new Date(formData.dataSchedulata);
+
+      if (employeeIds.length === 1) {
+        // Single employee - check conflict and suggest alternative if needed
+        const conflictCheck = CallConflictDetector.hasTimeConflict(requestedDateTime);
+
+        if (conflictCheck.hasConflict) {
+          const alternative = CallConflictDetector.suggestAlternativeTime(requestedDateTime);
+          const confirmMessage = `⚠️ Conflitto di orario rilevato!\n\n` +
+            `Orario richiesto: ${requestedDateTime.toLocaleString()}\n` +
+            `Orario suggerito: ${alternative.suggestedTime.toLocaleString()}\n\n` +
+            `Vuoi usare l'orario suggerito?\n\n` +
+            `Motivo: ${alternative.reason}`;
+
+          if (confirm(confirmMessage)) {
+            formData.dataSchedulata = alternative.suggestedTime.toISOString();
+          } else {
+            toast.warning('Programmazione annullata - conflitto di orario non risolto');
+            return;
+          }
+        }
+      } else {
+        // Multiple employees - automatically space out calls with 25-minute gaps
+        toast.info(`📅 Programmazione multipla: le call verranno distanziate di 25 minuti per evitare conflitti`);
+      }
+
       // Create calls for all selected employees
-      for (const employeeId of employeeIds) {
+      for (let index = 0; index < employeeIds.length; index++) {
+        const employeeId = employeeIds[index];
         const employee = employees.find(emp => emp.id === employeeId);
         if (!employee) {
           console.warn(`Employee not found: ${employeeId}`);
           continue;
         }
-        
+
+        // For multiple employees, space out calls by 25 minutes each
+        let callDateTime = new Date(formData.dataSchedulata);
+        if (employeeIds.length > 1) {
+          callDateTime = CallConflictDetector.findAvailableTimeSlot(
+            new Date(requestedDateTime.getTime() + (index * 25 * 60 * 1000))
+          );
+        }
+
         const newCall: Call = {
           id: generateId(),
           employeeId: employeeId,
-          dataSchedulata: formData.dataSchedulata,
-          note: formData.note,
+          dataSchedulata: callDateTime.toISOString(),
+          note: employeeIds.length > 1
+            ? `${formData.note} (Programmata automaticamente con distanziamento per evitare conflitti)`
+            : formData.note,
           status: 'scheduled'
         };
         
@@ -682,6 +725,26 @@ export default function CallsPage() {
     }
   };
 
+  // Check if a specific call has conflicts
+  const hasCallConflicts = (callId: string) => {
+    const conflictCheck = CallConflictDetector.getCallConflicts(callId);
+    return conflictCheck.hasConflicts;
+  };
+
+  // Detect existing conflicts function
+  const detectExistingConflicts = () => {
+    const conflictAnalysis = CallConflictDetector.detectAllExistingConflicts();
+
+    setConflicts(conflictAnalysis.conflictGroups);
+    setShowConflicts(true);
+
+    if (conflictAnalysis.conflictGroups.length === 0) {
+      toast.success('✅ Nessun conflitto di orario rilevato!');
+    } else {
+      toast.error(`⚠️ ${conflictAnalysis.summary}`);
+    }
+  };
+
   // Delete duplicate call function
   const deleteDuplicateCall = async (callId: string) => {
     const call = calls.find(c => c.id === callId);
@@ -690,12 +753,46 @@ export default function CallsPage() {
     const employee = employees.find(emp => emp.id === call.employeeId);
     if (!employee) return;
 
-    const callWithEmployee: CallWithEmployee = { ...call, employee };
-    await handleDeleteCall(callWithEmployee);
+    try {
+      // Track deletion before actually deleting
+      CallTrackingService.trackModification(call.id, 'deleted', call, undefined);
 
-    // Refresh duplicates after deletion
-    if (showDuplicates) {
-      setTimeout(() => detectDuplicates(), 100);
+      // Cancel notifications
+      NotificationService.cancelCallNotifications(call.id);
+
+      // Delete Google Calendar event if exists
+      if (call.googleCalendarEventId && GoogleCalendarService.isConnected()) {
+        try {
+          await GoogleCalendarService.deleteEvent(call.googleCalendarEventId);
+        } catch (error) {
+          console.warn('Failed to delete calendar event:', error);
+        }
+      }
+
+      LocalStorage.deleteCall(call.id);
+
+      // Update local state immediately
+      const updatedCalls = calls.filter(c => c.id !== callId);
+      setCalls(updatedCalls);
+
+      // Update duplicates list based on remaining calls
+      const remainingDuplicates = duplicates.map(group =>
+        group.filter(c => c.id !== callId)
+      ).filter(group => group.length > 1); // Keep only groups with 2+ calls
+
+      setDuplicates(remainingDuplicates);
+
+      toast.success('Call duplicata eliminata');
+
+      // If no more duplicates, hide the panel
+      if (remainingDuplicates.length === 0) {
+        toast.success('✅ Nessun duplicato rimanente');
+        setShowDuplicates(false);
+      }
+
+    } catch (error) {
+      console.error('Errore durante l\'eliminazione della call duplicata:', error);
+      toast.error('Errore durante l\'eliminazione della call');
     }
   };
 
@@ -1488,6 +1585,17 @@ export default function CallsPage() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={detectExistingConflicts}
+                className="scale-hover"
+                title="Rileva conflitti di orario esistenti"
+              >
+                <Clock className="h-4 w-4 mr-2" />
+                Rileva Conflitti
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   setExportType('calls');
                   setExportModalOpen(true);
@@ -1565,6 +1673,114 @@ export default function CallsPage() {
               </div>
             )}
           </div>
+
+          {/* Conflict Detection Results */}
+          {showConflicts && (
+            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-red-800 flex items-center">
+                  <Clock className="h-4 w-4 mr-2" />
+                  Conflitti di Orario Rilevati ({conflicts.length} gruppi)
+                </h4>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowConflicts(false)}
+                  className="text-red-600 hover:text-red-800"
+                >
+                  <XCircle className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {conflicts.length === 0 ? (
+                <p className="text-red-700">✅ Nessun conflitto di orario rilevato</p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="bg-red-100 border border-red-300 rounded-md p-3 mb-4">
+                    <p className="text-red-800 text-sm">
+                      ⚠️ <strong>Attenzione:</strong> Le call seguenti hanno conflitti di orario (distanza minima 25 minuti non rispettata).
+                      <br />È consigliabile riprogrammare alcune call per evitare sovrapposizioni.
+                    </p>
+                  </div>
+
+                  {conflicts.map((group, groupIndex) => (
+                    <div key={groupIndex} className="bg-white border border-red-200 rounded-md p-3">
+                      <h5 className="font-medium text-gray-800 mb-2">
+                        Gruppo Conflitto {groupIndex + 1} ({group.length} call coinvolte)
+                      </h5>
+                      <div className="grid gap-2">
+                        {group
+                          .sort((a, b) => new Date(a.dataSchedulata).getTime() - new Date(b.dataSchedulata).getTime())
+                          .map((call, callIndex) => {
+                            const employee = employees.find(emp => emp.id === call.employeeId);
+                            const callStart = new Date(call.dataSchedulata);
+                            const callEnd = new Date(callStart.getTime() + 30 * 60 * 1000); // 30 min duration
+
+                            return (
+                              <div key={call.id} className="flex items-center justify-between bg-red-50 p-2 rounded text-sm border border-red-200">
+                                <div className="flex items-center space-x-3">
+                                  <span className="font-mono text-xs bg-red-200 px-2 py-1 rounded">
+                                    {callIndex + 1}
+                                  </span>
+                                  <span className="font-medium">
+                                    {employee?.nome} {employee?.cognome}
+                                  </span>
+                                  <span className="text-red-700">
+                                    {formatDateTime(call.dataSchedulata)}
+                                  </span>
+                                  <span className={`px-2 py-1 rounded-full text-xs ${getCallStatusColor(call.status)}`}>
+                                    {call.status}
+                                  </span>
+                                  {call.note && (
+                                    <span className="text-gray-500 truncate max-w-[150px]">
+                                      📝 {call.note}
+                                    </span>
+                                  )}
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    // Trova un orario alternativo per questa call
+                                    const alternative = CallConflictDetector.suggestAlternativeTime(
+                                      new Date(call.dataSchedulata),
+                                      call.id
+                                    );
+
+                                    const message = `⏰ Orario attuale: ${callStart.toLocaleString()}\n` +
+                                      `✅ Orario suggerito: ${alternative.suggestedTime.toLocaleString()}\n\n` +
+                                      `Vuoi spostare la call all'orario suggerito?`;
+
+                                    if (confirm(message)) {
+                                      // Aggiorna la call con il nuovo orario
+                                      LocalStorage.updateCall(call.id, {
+                                        dataSchedulata: alternative.suggestedTime.toISOString(),
+                                        note: call.note
+                                          ? `${call.note} (Riprogrammata per risolvere conflitto di orario)`
+                                          : 'Riprogrammata per risolvere conflitto di orario'
+                                      });
+                                      loadData();
+                                      toast.success('Call riprogrammata con successo');
+
+                                      // Rigenera l'analisi conflitti dopo la modifica
+                                      setTimeout(() => detectExistingConflicts(), 500);
+                                    }
+                                  }}
+                                  className="text-blue-600 hover:text-blue-800"
+                                  title="Risolvi conflitto - suggerisci orario alternativo"
+                                >
+                                  <RotateCcw className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Duplicate Detection Results */}
           {showDuplicates && (
@@ -1714,6 +1930,12 @@ export default function CallsPage() {
                             <span className="flex items-center">
                               <Star className="w-4 h-4 mr-1 fill-current text-yellow-500" />
                               {call.rating}/5
+                            </span>
+                          )}
+                          {hasCallConflicts(call.id) && (
+                            <span className="flex items-center bg-red-100 text-red-700 px-2 py-1 rounded-full text-xs font-medium">
+                              <Clock className="w-3 h-3 mr-1" />
+                              Conflitto Orario
                             </span>
                           )}
                         </div>

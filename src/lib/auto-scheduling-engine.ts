@@ -11,6 +11,7 @@ import {
 import { generateId } from './utils';
 import { LocalStorage } from './storage';
 import { SmartNotificationService } from './smart-notification-service';
+import { CallConflictDetector } from './call-conflict-detector';
 
 /**
  * Auto-Scheduling Intelligence Engine
@@ -229,12 +230,12 @@ export class AutoSchedulingEngine {
   }
 
   /**
-   * Calcola la data ottimale per la call
+   * Calcola la data ottimale per la call con controllo conflitti
    */
   private calculateOptimalDate(triggers: SchedulingTrigger[], employee: Employee): Date {
     const now = new Date();
     let suggestedDate = new Date(now);
-    
+
     // Base scheduling: add business days
     const priority = this.calculatePriority(triggers);
     const daysToAdd = {
@@ -251,7 +252,7 @@ export class AutoSchedulingEngine {
     if (contractTrigger && contractTrigger.daysUntilAction) {
       const contractUrgentDate = new Date(now);
       contractUrgentDate.setDate(now.getDate() + Math.max(contractTrigger.daysUntilAction - 30, 1));
-      
+
       if (contractUrgentDate < suggestedDate) {
         suggestedDate = contractUrgentDate;
       }
@@ -260,7 +261,23 @@ export class AutoSchedulingEngine {
     // Ensure it's a business day (Monday-Friday)
     this.adjustToBusinessDay(suggestedDate);
 
-    return suggestedDate;
+    // Set a preferred time based on priority
+    const preferredHours = {
+      'urgent': 10,    // 10:00 AM for urgent calls
+      'high': 11,      // 11:00 AM for high priority
+      'medium': 14,    // 2:00 PM for medium priority
+      'low': 15        // 3:00 PM for low priority
+    }[priority];
+
+    suggestedDate.setHours(preferredHours, 0, 0, 0);
+
+    // Find available time slot to avoid conflicts
+    const availableSlot = CallConflictDetector.findAvailableTimeSlot(suggestedDate);
+
+    console.log(`📅 Original suggested time: ${suggestedDate.toLocaleString()}`);
+    console.log(`✅ Available time slot: ${availableSlot.toLocaleString()}`);
+
+    return availableSlot;
   }
 
   /**
@@ -434,7 +451,7 @@ export class AutoSchedulingEngine {
   }
 
   /**
-   * Accetta un suggerimento e crea la call
+   * Accetta un suggerimento e crea la call con controllo conflitti finale
    */
   async acceptSuggestion(suggestionId: string): Promise<void> {
     const suggestion = this.suggestions.find(s => s.id === suggestionId);
@@ -443,18 +460,33 @@ export class AutoSchedulingEngine {
     suggestion.status = 'accepted';
     this.saveSuggestions();
 
-    // Create the call
+    // Create the call with final conflict check
     const employee = LocalStorage.getEmployees().find(e => e.id === suggestion.employeeId);
     if (employee) {
+      // Final conflict check before creating the call
+      const suggestedTime = new Date(suggestion.suggestedDate);
+      const finalTimeCheck = CallConflictDetector.suggestAlternativeTime(suggestedTime);
+
+      console.log(`🔍 Final conflict check for suggestion ${suggestionId}`);
+      console.log(`📅 Original time: ${suggestedTime.toLocaleString()}`);
+      console.log(`✅ Final time: ${finalTimeCheck.suggestedTime.toLocaleString()}`);
+      console.log(`💬 Reason: ${finalTimeCheck.reason}`);
+
       const call: Call = {
         id: generateId(),
         employeeId: suggestion.employeeId,
-        dataSchedulata: suggestion.suggestedDate,
+        dataSchedulata: finalTimeCheck.suggestedTime.toISOString(),
         status: 'scheduled',
-        note: `Call programmata automaticamente: ${suggestion.reasoning.join(', ')}`
+        note: finalTimeCheck.suggestedTime.getTime() !== suggestedTime.getTime()
+          ? `Call programmata automaticamente: ${suggestion.reasoning.join(', ')} (Orario aggiustato per evitare conflitti)`
+          : `Call programmata automaticamente: ${suggestion.reasoning.join(', ')}`
       };
 
       LocalStorage.addCall(call);
+
+      // Update suggestion with final scheduled time
+      suggestion.suggestedDate = finalTimeCheck.suggestedTime.toISOString();
+      this.saveSuggestions();
 
       // Send smart notification
       await SmartNotificationService.getInstance().createAutoScheduledNotification(call, employee, suggestion);
