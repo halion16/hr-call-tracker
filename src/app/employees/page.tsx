@@ -960,6 +960,11 @@ export default function EmployeesPage() {
                         <span>
                           Assunto: {formatDate(employee.dataAssunzione)}
                         </span>
+                        {employee.contractExpiryDate && (
+                          <span>
+                            Contratto scade: {formatDate(employee.contractExpiryDate)}
+                          </span>
+                        )}
                         {(() => {
                           const priorityInfo = getEmployeePriorityInfo(employee);
                           return (

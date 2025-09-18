@@ -398,8 +398,8 @@ export class RealCompanyApiService {
       firstName: ecosEmployee.NameFirst || ecosEmployee.Nome || ecosEmployee.FirstName || 'N/A',
       lastName: ecosEmployee.NameLast || ecosEmployee.Cognome || ecosEmployee.LastName || 'N/A',
       email: ecosEmployee.EMail || ecosEmployee.Email || ecosEmployee.email || '',
-      position: ecosEmployee.Position || ecosEmployee.JobTitle || ecosEmployee.Posizione || 'Non specificato',
-      department: ecosEmployee.Department || ecosEmployee.Dipartimento || 'Non specificato',
+      position: ecosEmployee.CategoryDescShort || ecosEmployee.Position || ecosEmployee.JobTitle || ecosEmployee.Posizione || 'Non specificato',
+      department: ecosEmployee.DepartmentDescShort || ecosEmployee.Department || ecosEmployee.Dipartimento || 'Non specificato',
       hireDate: hireDate || new Date().toISOString().split('T')[0], // Ora uso HireDate correttamente
       phone: ecosEmployee.Phone || ecosEmployee.Telefono || ecosEmployee.PhoneNumber || '',
       status: (!ecosEmployee.Delete || ecosEmployee.Delete === '0') ? 'active' : 'inactive',

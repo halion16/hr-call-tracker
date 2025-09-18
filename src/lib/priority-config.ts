@@ -6,7 +6,7 @@ export interface PriorityRule {
   priority: 'high' | 'medium' | 'low';
   criteria: {
     field: string;
-    operator: 'less_than' | 'greater_than' | 'equals' | 'contains' | 'in_months';
+    operator: 'less_than' | 'greater_than' | 'equals' | 'contains' | 'in_months' | 'in_days';
     value: string | number;
     unit?: 'days' | 'months' | 'years';
   };
@@ -31,14 +31,14 @@ const DEFAULT_PRIORITY_RULES: PriorityRule[] = [
   {
     id: 'new-hire-high',
     name: 'Nuovi Assunti (Alta)',
-    description: 'Dipendenti assunti negli ultimi 3 mesi',
+    description: 'Dipendenti assunti negli ultimi 30 giorni',
     type: 'hire_date',
     priority: 'high',
     criteria: {
       field: 'dataAssunzione',
-      operator: 'in_months',
-      value: 3,
-      unit: 'months'
+      operator: 'in_days',
+      value: 30,
+      unit: 'days'
     },
     color: {
       bg: 'rgba(239, 68, 68, 0.05)',
@@ -238,10 +238,16 @@ export class PriorityConfigService {
     if (!fieldValue) return false;
 
     switch (criteria.operator) {
-      case 'in_months':
+      case 'in_days':
         const today = new Date();
         const date = new Date(fieldValue);
-        const monthsAgo = (today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24 * 30);
+        const daysAgo = (today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24);
+        return daysAgo >= 0 && daysAgo <= (criteria.value as number);
+
+      case 'in_months':
+        const todayMonths = new Date();
+        const dateMonths = new Date(fieldValue);
+        const monthsAgo = (todayMonths.getTime() - dateMonths.getTime()) / (1000 * 60 * 60 * 24 * 30);
         return monthsAgo <= (criteria.value as number);
 
       case 'equals':
